@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 from heimdall.models import ArtifactRecord, StepState
@@ -16,8 +17,10 @@ def load_report(path: Path) -> dict[str, object]:
         raise RuntimeError(f"Invalid JSON report: {path} ({exc})") from exc
 
 
-def write_artifact_index(path: Path, run_id: str, artifacts: dict[str, ArtifactRecord]) -> None:
-    document = {
+def write_artifact_index(
+    path: Path, run_id: str, artifacts: dict[str, ArtifactRecord]
+) -> None:
+    document: dict[str, object] = {
         "schema_version": "heimdall_artifact_index.v1",
         "run_id": run_id,
         "artifacts": {
@@ -88,7 +91,7 @@ def _overall_reason(steps: dict[str, StepState]) -> str | None:
     return None
 
 
-def _render_summary(document: dict[str, object]) -> str:
+def _render_summary(document: Mapping[str, object]) -> str:
     steps = document["steps"]
     assert isinstance(steps, dict)
     lines = [

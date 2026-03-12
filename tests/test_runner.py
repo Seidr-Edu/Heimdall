@@ -46,22 +46,31 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
         run_root = self.runs_root / "20260312T120000Z__heimdall"
-        run_report = json.loads((run_root / "pipeline" / "outputs" / "run_report.json").read_text(encoding="utf-8"))
-        artifact_index = json.loads((run_root / "pipeline" / "artifact_index.json").read_text(encoding="utf-8"))
+        run_report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        artifact_index = json.loads(
+            (run_root / "pipeline" / "artifact_index.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(run_report["status"], "passed")
         self.assertEqual(run_report["steps"]["andvari"]["status"], "passed")
-        self.assertEqual(set(artifact_index["artifacts"]), {
-            "andvari_logs",
-            "andvari_report_dir",
-            "generated_repo",
-            "kvasir_report",
-            "lidskjalv_generated_report",
-            "lidskjalv_original_report",
-            "model_diagram",
-            "model_logs",
-            "original_repo",
-            "source_manifest",
-        })
+        self.assertEqual(
+            set(artifact_index["artifacts"]),
+            {
+                "andvari_logs",
+                "andvari_report_dir",
+                "generated_repo",
+                "kvasir_report",
+                "lidskjalv_generated_report",
+                "lidskjalv_original_report",
+                "model_diagram",
+                "model_logs",
+                "original_repo",
+                "source_manifest",
+            },
+        )
         self.assertTrue((run_root / "pipeline" / "logs" / "brokk.log").is_file())
         self.assertTrue((run_root / "pipeline" / "logs" / "eitri.log").is_file())
 
@@ -69,17 +78,27 @@ class RunnerIntegrationTest(unittest.TestCase):
         runs = docker_state["runs"]
         run_by_step = {entry["step"]: entry for entry in runs}
         self.assertLess(run_by_step["brokk"]["seq"], run_by_step["eitri"]["seq"])
-        self.assertLess(run_by_step["brokk"]["seq"], run_by_step["lidskjalv-original"]["seq"])
+        self.assertLess(
+            run_by_step["brokk"]["seq"], run_by_step["lidskjalv-original"]["seq"]
+        )
         self.assertLess(run_by_step["eitri"]["seq"], run_by_step["andvari"]["seq"])
         self.assertLess(run_by_step["andvari"]["seq"], run_by_step["kvasir"]["seq"])
-        self.assertLess(run_by_step["andvari"]["seq"], run_by_step["lidskjalv-generated"]["seq"])
+        self.assertLess(
+            run_by_step["andvari"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
+        )
         for entry in runs:
             mount_hosts = {Path(mount["host"]) for mount in entry["mounts"]}
             self.assertNotIn(run_root / "pipeline" / "manifest.yaml", mount_hosts)
 
-        eitri_manifest = runs[1]["manifest"] if runs[1]["step"] == "eitri" else run_by_step["eitri"]["manifest"]
+        eitri_manifest = (
+            runs[1]["manifest"]
+            if runs[1]["step"] == "eitri"
+            else run_by_step["eitri"]["manifest"]
+        )
         self.assertEqual(eitri_manifest["writer_extension"], ".puml")
-        self.assertEqual(eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram")
+        self.assertEqual(
+            eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
+        )
         self.assertEqual(eitri_manifest["writers"]["plantuml"]["hidePrivate"], True)
 
     def test_resume_reruns_only_failed_kvasir(self) -> None:
@@ -100,7 +119,11 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
 
         run_root = self.runs_root / "20260312T120000Z__heimdall"
-        failed_report = json.loads((run_root / "pipeline" / "outputs" / "run_report.json").read_text(encoding="utf-8"))
+        failed_report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(failed_report["steps"]["kvasir"]["status"], "failed")
 
         resumed = self._run_cli(
@@ -114,7 +137,11 @@ class RunnerIntegrationTest(unittest.TestCase):
             ]
         )
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
-        resumed_report = json.loads((run_root / "pipeline" / "outputs" / "run_report.json").read_text(encoding="utf-8"))
+        resumed_report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(resumed_report["status"], "passed")
         self.assertEqual(resumed_report["steps"]["brokk"]["status"], "skipped")
         self.assertEqual(resumed_report["steps"]["kvasir"]["status"], "passed")
@@ -171,7 +198,11 @@ class RunnerIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         run_root = self.runs_root / "20260312T120000Z__heimdall"
-        report = json.loads((run_root / "pipeline" / "outputs" / "run_report.json").read_text(encoding="utf-8"))
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(report["status"], "error")
         self.assertEqual(report["steps"]["eitri"]["status"], "error")
         self.assertEqual(report["steps"]["eitri"]["reason"], "missing-canonical-report")
@@ -179,7 +210,9 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
 
     def test_preflight_requires_sonar_when_enabled(self) -> None:
-        sonar_manifest = build_pipeline_manifest(skip_sonar=False, run_id="20260312T120000Z__sonar")
+        sonar_manifest = build_pipeline_manifest(
+            skip_sonar=False, run_id="20260312T120000Z__sonar"
+        )
         write_file(self.pipeline_path, sonar_manifest)
         completed = self._run_cli(
             [
@@ -196,7 +229,9 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("SONAR_HOST_URL", completed.stderr)
 
-    def _run_cli(self, args: list[str], *, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def _run_cli(
+        self, args: list[str], *, extra_env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         env = fake_env(self.bin_dir, self.state_path, extra=extra_env)
         return subprocess.run(
             ["python3", "-m", "heimdall.cli", *args],

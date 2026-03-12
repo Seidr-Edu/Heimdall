@@ -22,11 +22,17 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install lint tool
-        run: python -m pip install --upgrade pip ruff
+      - name: Install quality tools
+        run: python -m pip install --upgrade pip ruff mypy
 
       - name: Lint
         run: bash tests/lint.sh
+
+      - name: Format
+        run: bash tests/format.sh
+
+      - name: Typecheck
+        run: bash tests/typecheck.sh
 
       - name: Test
         run: bash tests/run.sh

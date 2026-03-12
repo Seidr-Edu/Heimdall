@@ -92,8 +92,39 @@ Run linting locally:
 bash tests/lint.sh
 ```
 
-GitHub Actions runs both commands on pushes and pull requests via
-`.github/workflows/ci.yml`.
+Run formatting checks locally:
+
+```bash
+bash tests/format.sh
+```
+
+Run type checking locally:
+
+```bash
+bash tests/typecheck.sh
+```
+
+GitHub Actions runs lint, formatting, type checking, and tests on pushes and
+pull requests via `.github/workflows/ci.yml`.
+
+The lint baseline uses `ruff` with:
+
+- `E4`, `E7`, `E9`
+- `F`
+- `I`
+- `UP`
+- `B`
+- `SIM`
+
+Type checking uses `mypy` against `src/heimdall` with:
+
+- `no_implicit_optional`
+- `check_untyped_defs`
+- `disallow_untyped_defs`
+- `disallow_incomplete_defs`
+- `warn_unused_ignores`
+- `warn_redundant_casts`
+- `strict_equality`
 
 ## Eitri smoke
 

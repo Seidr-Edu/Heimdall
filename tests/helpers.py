@@ -102,15 +102,26 @@ def install_fake_tools(root: Path) -> tuple[Path, Path, Path]:
         target = bin_dir / tool_name
         shutil.copy2(source, target)
         target.chmod(0o755)
-    state_path.write_text(json.dumps({"available": {}, "commands": [], "runs": [], "next_seq": 1}, indent=2) + "\n")
+    state_path.write_text(
+        json.dumps(
+            {"available": {}, "commands": [], "runs": [], "next_seq": 1}, indent=2
+        )
+        + "\n"
+    )
     return bin_dir, home_dir, state_path
 
 
-def fake_env(bin_dir: Path, state_path: Path, *, extra: dict[str, str] | None = None) -> dict[str, str]:
+def fake_env(
+    bin_dir: Path, state_path: Path, *, extra: dict[str, str] | None = None
+) -> dict[str, str]:
     env = os.environ.copy()
     pythonpath = str(REPO_ROOT / "src")
     existing_pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = pythonpath if not existing_pythonpath else f"{pythonpath}{os.pathsep}{existing_pythonpath}"
+    env["PYTHONPATH"] = (
+        pythonpath
+        if not existing_pythonpath
+        else f"{pythonpath}{os.pathsep}{existing_pythonpath}"
+    )
     env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
     env["FAKE_DOCKER_STATE"] = str(state_path)
     if extra:

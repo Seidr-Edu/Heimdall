@@ -22,7 +22,9 @@ class AdapterTest(unittest.TestCase):
             write_file(manifest_path, build_pipeline_manifest())
             _raw, config = load_pipeline_manifest(manifest_path)
             brokk_run = root / "run-root" / "services" / "brokk" / "run"
-            (brokk_run / "artifacts" / "original-repo").mkdir(parents=True, exist_ok=True)
+            (brokk_run / "artifacts" / "original-repo").mkdir(
+                parents=True, exist_ok=True
+            )
             (brokk_run / "inputs").mkdir(parents=True, exist_ok=True)
             write_file(
                 brokk_run / "inputs" / "source-manifest.json",
@@ -57,19 +59,45 @@ class AdapterTest(unittest.TestCase):
 
         eitri_manifest = loads(eitri.manifest_text)
         original_manifest = loads(original.manifest_text)
-        self.assertEqual(eitri_manifest["source_relpaths"], ["src/main/java", "shared/src/main/java"])
-        self.assertEqual(eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram")
+        self.assertEqual(
+            eitri_manifest["source_relpaths"], ["src/main/java", "shared/src/main/java"]
+        )
+        self.assertEqual(
+            eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
+        )
         self.assertEqual(eitri_manifest["writers"]["plantuml"]["hidePrivate"], True)
         self.assertEqual(
-            [(str(mount.host_path), mount.container_path, mount.read_only) for mount in eitri.mounts],
             [
-                (str(context.run_root / "services" / "brokk" / "run" / "artifacts" / "original-repo"), "/input/repo", True),
-                (str(context.run_root / "services" / "eitri" / "config"), "/run/config", True),
+                (str(mount.host_path), mount.container_path, mount.read_only)
+                for mount in eitri.mounts
+            ],
+            [
+                (
+                    str(
+                        context.run_root
+                        / "services"
+                        / "brokk"
+                        / "run"
+                        / "artifacts"
+                        / "original-repo"
+                    ),
+                    "/input/repo",
+                    True,
+                ),
+                (
+                    str(context.run_root / "services" / "eitri" / "config"),
+                    "/run/config",
+                    True,
+                ),
                 (str(context.run_root / "services" / "eitri" / "run"), "/run", False),
             ],
         )
-        self.assertEqual(original_manifest["project_key"], "example_demo-repo__original")
-        self.assertEqual(original_manifest["project_name"], "example/demo-repo (original)")
+        self.assertEqual(
+            original_manifest["project_key"], "example_demo-repo__original"
+        )
+        self.assertEqual(
+            original_manifest["project_name"], "example/demo-repo (original)"
+        )
         self.assertEqual(original_manifest["repo_subdir"], "app")
         self.assertTrue(original.report_path.name.endswith("run_report.json"))
 

@@ -20,10 +20,14 @@ class ManifestTest(unittest.TestCase):
             _raw, config = load_pipeline_manifest(manifest_path)
 
         self.assertEqual(config.version, 1)
-        self.assertEqual(config.eitri.source_relpaths, ("src/main/java", "shared/src/main/java"))
+        self.assertEqual(
+            config.eitri.source_relpaths, ("src/main/java", "shared/src/main/java")
+        )
         self.assertEqual(config.eitri.parser_extension, ".java")
         self.assertEqual(config.andvari.max_iter, 8)
-        self.assertEqual(config.kvasir.write_scope_ignore_prefixes, ("completion/proof/logs", ".m2"))
+        self.assertEqual(
+            config.kvasir.write_scope_ignore_prefixes, ("completion/proof/logs", ".m2")
+        )
         self.assertTrue(config.eitri.writers["plantuml"]["hidePrivate"])
 
     def test_rejects_unknown_top_level_keys(self) -> None:

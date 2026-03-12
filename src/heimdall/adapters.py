@@ -20,6 +20,7 @@ from heimdall.models import (
     RuntimeConfig,
     StepDefinition,
     StepPrepared,
+    StepStatus,
 )
 from heimdall.reporting import load_report
 from heimdall.simpleyaml import dumps
@@ -82,7 +83,9 @@ def topological_steps() -> tuple[str, ...]:
     return ALL_STEPS
 
 
-def prepare_step(step: str, context: AdapterContext, *, stage_inputs: bool = True) -> StepPrepared:
+def prepare_step(
+    step: str, context: AdapterContext, *, stage_inputs: bool = True
+) -> StepPrepared:
     definition = STEP_DEFINITIONS[step]
     service_root = context.run_root / "services" / definition.service_dir_name
     config_dir = service_root / "config"
@@ -92,6 +95,11 @@ def prepare_step(step: str, context: AdapterContext, *, stage_inputs: bool = Tru
     ensure_directory(service_root, 0o755)
     ensure_directory(config_dir, 0o755)
     ensure_directory(run_dir, 0o777)
+    payload: dict[str, object]
+    env: dict[str, str]
+    mounts: tuple[DockerMount, ...]
+    image_ref: str
+    resolved_image_id: str
 
     if step == STEP_BROKK:
         payload = {
@@ -153,7 +161,9 @@ def prepare_step(step: str, context: AdapterContext, *, stage_inputs: bool = Tru
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(context.runtime.codex_bin_dir, "/opt/provider/bin", True),
-            DockerMount(context.runtime.codex_home_dir, "/opt/provider-seed/codex-home", True),
+            DockerMount(
+                context.runtime.codex_home_dir, "/opt/provider-seed/codex-home", True
+            ),
         )
         image_ref = context.config.images.andvari
         resolved_image_id = context.resolved_images.andvari
@@ -170,30 +180,43 @@ def prepare_step(step: str, context: AdapterContext, *, stage_inputs: bool = Tru
         if context.config.kvasir.generated_subdir is not None:
             payload["generated_subdir"] = context.config.kvasir.generated_subdir
         if context.config.kvasir.write_scope_ignore_prefixes:
-            payload["write_scope_ignore_prefixes"] = list(context.config.kvasir.write_scope_ignore_prefixes)
+            payload["write_scope_ignore_prefixes"] = list(
+                context.config.kvasir.write_scope_ignore_prefixes
+            )
         env = {"KVASIR_MANIFEST": "/run/config/manifest.yaml"}
         mounts = (
-            DockerMount(_brokk_original_repo(context.run_root), "/input/original-repo", True),
-            DockerMount(_andvari_generated_repo(context.run_root), "/input/generated-repo", True),
+            DockerMount(
+                _brokk_original_repo(context.run_root), "/input/original-repo", True
+            ),
+            DockerMount(
+                _andvari_generated_repo(context.run_root), "/input/generated-repo", True
+            ),
             DockerMount(_eitri_model_dir(context.run_root), "/input/model", True),
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(context.runtime.codex_bin_dir, "/opt/provider/bin", True),
-            DockerMount(context.runtime.codex_home_dir, "/opt/provider-seed/codex-home", True),
+            DockerMount(
+                context.runtime.codex_home_dir, "/opt/provider-seed/codex-home", True
+            ),
         )
         image_ref = context.config.images.kvasir
         resolved_image_id = context.resolved_images.kvasir
     else:
         generated = step == STEP_LIDSKJALV_GENERATED
         defaults = _derive_scan_defaults(context)
-        target_config = context.config.lidskjalv.generated if generated else context.config.lidskjalv.original
+        target_config = (
+            context.config.lidskjalv.generated
+            if generated
+            else context.config.lidskjalv.original
+        )
         scan_label = "generated" if generated else "original"
         payload = {
             "version": 1,
             "run_id": context.config.run_id,
             "scan_label": scan_label,
             "project_key": target_config.project_key or defaults[f"{scan_label}_key"],
-            "project_name": target_config.project_name or defaults[f"{scan_label}_name"],
+            "project_name": target_config.project_name
+            or defaults[f"{scan_label}_name"],
             "skip_sonar": context.config.lidskjalv.skip_sonar,
             "sonar_wait_timeout_sec": context.config.lidskjalv.sonar_wait_timeout_sec,
             "sonar_wait_poll_sec": context.config.lidskjalv.sonar_wait_poll_sec,
@@ -209,7 +232,11 @@ def prepare_step(step: str, context: AdapterContext, *, stage_inputs: bool = Tru
                 env["SONAR_TOKEN"] = sonar_token
             if context.runtime.sonar_organization is not None:
                 env["SONAR_ORGANIZATION"] = context.runtime.sonar_organization
-        input_repo = _andvari_generated_repo(context.run_root) if generated else _brokk_original_repo(context.run_root)
+        input_repo = (
+            _andvari_generated_repo(context.run_root)
+            if generated
+            else _brokk_original_repo(context.run_root)
+        )
         mounts = (
             DockerMount(input_repo, "/input/repo", True),
             DockerMount(config_dir, "/run/config", True),
@@ -237,7 +264,9 @@ def prepare_step(step: str, context: AdapterContext, *, stage_inputs: bool = Tru
     )
 
 
-def classify_report(step: str, report_path: Path) -> tuple[str, str | None, dict[str, ArtifactRecord]]:
+def classify_report(
+    step: str, report_path: Path
+) -> tuple[StepStatus, str | None, dict[str, ArtifactRecord]]:
     report = load_report(report_path)
     report_status = str(report.get("status", "")).strip() or None
     reason = _classify_reason(step, report)
@@ -251,7 +280,10 @@ def classify_report(step: str, report_path: Path) -> tuple[str, str | None, dict
 
 def _is_success(step: str, report: dict[str, object]) -> bool:
     if step == STEP_KVASIR:
-        return report.get("status") == "passed" and report.get("behavioral_verdict") == "pass"
+        return (
+            report.get("status") == "passed"
+            and report.get("behavioral_verdict") == "pass"
+        )
     return report.get("status") == "passed"
 
 
@@ -259,7 +291,11 @@ def _classify_reason(step: str, report: dict[str, object]) -> str | None:
     reason = report.get("reason")
     if reason:
         return str(reason)
-    if step == STEP_KVASIR and report.get("status") == "passed" and report.get("behavioral_verdict") != "pass":
+    if (
+        step == STEP_KVASIR
+        and report.get("status") == "passed"
+        and report.get("behavioral_verdict") != "pass"
+    ):
         return "behavioral-verdict-not-pass"
     return None
 
@@ -271,9 +307,13 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
         source_manifest = run_dir / "inputs" / "source-manifest.json"
         original_repo = run_dir / "artifacts" / "original-repo"
         if source_manifest.exists():
-            records["source_manifest"] = ArtifactRecord(owner=step, path=str(source_manifest))
+            records["source_manifest"] = ArtifactRecord(
+                owner=step, path=str(source_manifest)
+            )
         if original_repo.exists():
-            records["original_repo"] = ArtifactRecord(owner=step, path=str(original_repo))
+            records["original_repo"] = ArtifactRecord(
+                owner=step, path=str(original_repo)
+            )
     elif step == STEP_EITRI:
         diagram = run_dir / "artifacts" / "model" / "diagram.puml"
         logs_dir = run_dir / "artifacts" / "model" / "logs"
@@ -286,17 +326,25 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
         logs_dir = run_dir / "artifacts" / "andvari" / "logs"
         report_dir = run_dir / "artifacts" / "andvari" / "report"
         if generated_repo.exists():
-            records["generated_repo"] = ArtifactRecord(owner=step, path=str(generated_repo))
+            records["generated_repo"] = ArtifactRecord(
+                owner=step, path=str(generated_repo)
+            )
         if logs_dir.exists():
             records["andvari_logs"] = ArtifactRecord(owner=step, path=str(logs_dir))
         if report_dir.exists():
-            records["andvari_report_dir"] = ArtifactRecord(owner=step, path=str(report_dir))
+            records["andvari_report_dir"] = ArtifactRecord(
+                owner=step, path=str(report_dir)
+            )
     elif step == STEP_KVASIR:
         records["kvasir_report"] = ArtifactRecord(owner=step, path=str(report_path))
     elif step == STEP_LIDSKJALV_ORIGINAL:
-        records["lidskjalv_original_report"] = ArtifactRecord(owner=step, path=str(report_path))
+        records["lidskjalv_original_report"] = ArtifactRecord(
+            owner=step, path=str(report_path)
+        )
     elif step == STEP_LIDSKJALV_GENERATED:
-        records["lidskjalv_generated_report"] = ArtifactRecord(owner=step, path=str(report_path))
+        records["lidskjalv_generated_report"] = ArtifactRecord(
+            owner=step, path=str(report_path)
+        )
     return records
 
 
@@ -328,7 +376,9 @@ def _brokk_original_repo(run_root: Path) -> Path:
 
 
 def _eitri_diagram(run_root: Path) -> Path:
-    return run_root / "services" / "eitri" / "run" / "artifacts" / "model" / "diagram.puml"
+    return (
+        run_root / "services" / "eitri" / "run" / "artifacts" / "model" / "diagram.puml"
+    )
 
 
 def _eitri_model_dir(run_root: Path) -> Path:
