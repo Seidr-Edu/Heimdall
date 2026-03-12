@@ -55,7 +55,7 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
     ),
     STEP_ANDVARI: StepDefinition(
         name=STEP_ANDVARI,
-        depends_on=(STEP_EITRI, STEP_LIDSKJALV_ORIGINAL),
+        depends_on=(STEP_EITRI,),
         service_dir_name="andvari",
         report_relative_path="outputs/run_report.json",
     ),
