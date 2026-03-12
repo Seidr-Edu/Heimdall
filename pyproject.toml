@@ -26,3 +26,10 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py314"
+extend-exclude = ["runs"]
+
+[tool.ruff.lint]
+select = ["F", "I"]

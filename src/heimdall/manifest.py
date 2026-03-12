@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlparse
-import re
 
 from heimdall.models import (
     AndvariConfig,

@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
-from tests.helpers import build_pipeline_manifest, fake_env, install_fake_tools, load_fake_state, set_fake_image_id, write_file
+from tests.helpers import (
+    build_pipeline_manifest,
+    fake_env,
+    install_fake_tools,
+    load_fake_state,
+    set_fake_image_id,
+    write_file,
+)
 
 
 class RunnerIntegrationTest(unittest.TestCase):

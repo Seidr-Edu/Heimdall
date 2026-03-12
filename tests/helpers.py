@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import shutil
 import tempfile
+from pathlib import Path
 
 from heimdall.simpleyaml import dumps
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKES_DIR = REPO_ROOT / "tests" / "fakes"

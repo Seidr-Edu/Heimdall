@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from heimdall.adapters import AdapterContext, prepare_step, step_definitions
 from heimdall.manifest import load_pipeline_manifest
-from heimdall.models import RuntimeConfig, ResolvedImages
+from heimdall.models import ResolvedImages, RuntimeConfig
 from heimdall.simpleyaml import loads
-
 from tests.helpers import build_pipeline_manifest, write_file
 
 

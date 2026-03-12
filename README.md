@@ -86,6 +86,15 @@ Run the full test suite:
 bash tests/run.sh
 ```
 
+Run linting locally:
+
+```bash
+bash tests/lint.sh
+```
+
+GitHub Actions runs both commands on pushes and pull requests via
+`.github/workflows/ci.yml`.
+
 ## Eitri smoke
 
 There is an opt-in real-container smoke test for the local Eitri service

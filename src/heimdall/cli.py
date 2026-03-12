@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
-import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from heimdall.images import DockerError, ensure_docker_available, resolve_images
 from heimdall.manifest import ManifestValidationError, load_pipeline_manifest

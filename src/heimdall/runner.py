@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import sys
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
-import sys
 
 from heimdall import __version__
 from heimdall.adapters import (
-    AdapterContext,
     STEP_DEFINITIONS,
+    AdapterContext,
     classify_report,
     prepare_step,
     step_definitions,
@@ -16,7 +16,13 @@ from heimdall.adapters import (
 )
 from heimdall.images import run_container
 from heimdall.manifest import pipeline_to_document, runtime_snapshot
-from heimdall.models import PipelineConfig, ResolvedImages, RuntimeConfig, StepResult, StepState
+from heimdall.models import (
+    PipelineConfig,
+    ResolvedImages,
+    RuntimeConfig,
+    StepResult,
+    StepState,
+)
 from heimdall.reporting import write_artifact_index, write_run_outputs
 from heimdall.simpleyaml import dumps
 from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
@@ -209,7 +215,7 @@ def _execute_step(step: str, context: AdapterContext, runtime_view: dict[str, ob
         upstream_report_hashes=upstream_hashes,
         runtime_snapshot=runtime_view,
     )
-    completed = run_container(
+    run_container(
         prepared.configured_image_ref,
         prepared.env,
         [(mount.host_path, mount.container_path, mount.read_only) for mount in prepared.mounts],
