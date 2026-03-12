@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from heimdall.adapters import AdapterContext, prepare_step
+from heimdall.adapters import AdapterContext, prepare_step, step_definitions
 from heimdall.manifest import load_pipeline_manifest
 from heimdall.models import RuntimeConfig, ResolvedImages
 from heimdall.simpleyaml import loads
@@ -13,6 +13,9 @@ from tests.helpers import build_pipeline_manifest, write_file
 
 
 class AdapterTest(unittest.TestCase):
+    def test_andvari_depends_only_on_eitri(self) -> None:
+        self.assertEqual(step_definitions()["andvari"].depends_on, ("eitri",))
+
     def test_prepare_eitri_and_lidskjalv_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

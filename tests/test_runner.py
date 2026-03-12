@@ -64,7 +64,6 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertLess(run_by_step["brokk"]["seq"], run_by_step["eitri"]["seq"])
         self.assertLess(run_by_step["brokk"]["seq"], run_by_step["lidskjalv-original"]["seq"])
         self.assertLess(run_by_step["eitri"]["seq"], run_by_step["andvari"]["seq"])
-        self.assertLess(run_by_step["lidskjalv-original"]["seq"], run_by_step["andvari"]["seq"])
         self.assertLess(run_by_step["andvari"]["seq"], run_by_step["kvasir"]["seq"])
         self.assertLess(run_by_step["andvari"]["seq"], run_by_step["lidskjalv-generated"]["seq"])
         for entry in runs:
