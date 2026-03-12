@@ -1,0 +1,45 @@
+# Copy/edit this file for live Heimdall runs.
+# Replace the placeholder repo, commit SHA, and GHCR digests before running.
+
+version: 1
+run_id: 20260312T073202Z__local
+
+source:
+  repo_url: https://github.com/seidr-edu/Eitri.git
+  commit_sha: 14be0f5d3f464b3eb759fe4898b51523fb14e78e
+
+images:
+  brokk: ghcr.io/seidr-edu/brokk:v1.0.0
+  eitri: eitri:local
+  andvari: ghcr.io/seidr-edu/andvari:v1.0.1
+  kvasir: ghcr.io/seidr-edu/kvasir:v1.0.0
+  lidskjalv: ghcr.io/seidr-edu/lidskjalv:v1.1.0
+
+eitri:
+  source_relpaths:
+    - .
+  parser_extension: .java
+  writer_extension: .puml
+  verbose: true
+
+andvari:
+  gating_mode: model
+  max_iter: 8
+  max_gate_revisions: 3
+  model_gate_timeout_sec: 120
+
+kvasir:
+  max_iter: 5
+  write_scope_ignore_prefixes:
+    - completion/proof/logs
+
+lidskjalv:
+  skip_sonar: false
+  sonar_wait_timeout_sec: 300
+  sonar_wait_poll_sec: 5
+  original:
+    project_key: heimdall_local_original
+    project_name: Heimdall local original
+  generated:
+    project_key: heimdall_local_generated
+    project_name: Heimdall local generated

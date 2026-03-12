@@ -1,0 +1,50 @@
+# Example public Heimdall pipeline manifest.
+# Replace the placeholder digests before committing or using in production.
+
+version: 1
+run_id: 20260312T120000Z__example
+
+source:
+  repo_url: https://github.com/example/demo-repo.git
+  commit_sha: 0123456789abcdef0123456789abcdef01234567
+
+images:
+  brokk: ghcr.io/seidr-edu/brokk@sha256:REPLACE_ME
+  eitri: eitri:local
+  andvari: ghcr.io/seidr-edu/andvari@sha256:REPLACE_ME
+  kvasir: ghcr.io/seidr-edu/kvasir@sha256:REPLACE_ME
+  lidskjalv: ghcr.io/seidr-edu/lidskjalv@sha256:REPLACE_ME
+
+eitri:
+  source_relpaths:
+    - src/main/java
+    - shared/src/main/java
+  parser_extension: .java
+  writer_extension: .puml
+  verbose: true
+  writers:
+    plantuml:
+      diagramName: diagram
+      hidePrivate: true
+
+andvari:
+  gating_mode: model
+  max_iter: 8
+  max_gate_revisions: 3
+  model_gate_timeout_sec: 120
+
+kvasir:
+  original_subdir: app
+  generated_subdir: generated/app
+  max_iter: 5
+  write_scope_ignore_prefixes:
+    - completion/proof/logs
+
+lidskjalv:
+  skip_sonar: false
+  sonar_wait_timeout_sec: 300
+  sonar_wait_poll_sec: 5
+  original:
+    repo_subdir: app
+  generated:
+    repo_subdir: generated/app

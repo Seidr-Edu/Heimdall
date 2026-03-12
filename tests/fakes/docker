@@ -1,0 +1,406 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+from typing import Any
+
+from heimdall.simpleyaml import loads
+
+
+STATE_PATH = Path(os.environ["FAKE_DOCKER_STATE"])
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        print("missing docker subcommand", file=sys.stderr)
+        return 1
+    command = argv[1]
+    if command == "version":
+        _record_command({"kind": "version", "args": argv[2:]})
+        print(os.environ.get("FAKE_DOCKER_SERVER_VERSION", "26.1.0"))
+        return 0
+    if command == "pull":
+        if len(argv) != 3:
+            print("usage: docker pull <image>", file=sys.stderr)
+            return 1
+        image_ref = argv[2]
+        return _handle_pull(image_ref)
+    if command == "image" and len(argv) >= 5 and argv[2] == "inspect":
+        return _handle_inspect(argv[3])
+    if command == "run":
+        return _handle_run(argv[2:])
+    print(f"unsupported fake docker command: {' '.join(argv[1:])}", file=sys.stderr)
+    return 1
+
+
+def _handle_pull(image_ref: str) -> int:
+    if image_ref in _csv_env("FAKE_DOCKER_PULL_FAIL_REFS"):
+        print(f"pull denied for {image_ref}", file=sys.stderr)
+        return 1
+
+    def update(state: dict[str, Any]) -> None:
+        state.setdefault("available", {})[image_ref] = _image_id(image_ref)
+        _append_command(state, {"kind": "pull", "image": image_ref})
+
+    _mutate_state(update)
+    print(f"Pulled {image_ref}")
+    return 0
+
+
+def _handle_inspect(image_ref: str) -> int:
+    image_id: str | None = None
+
+    def update(state: dict[str, Any]) -> None:
+        nonlocal image_id
+        image_id = state.setdefault("available", {}).get(image_ref)
+        _append_command(state, {"kind": "inspect", "image": image_ref, "found": image_id is not None})
+
+    _mutate_state(update)
+    if image_id is None:
+        print(f"Error: No such image: {image_ref}", file=sys.stderr)
+        return 1
+    print(image_id)
+    return 0
+
+
+def _handle_run(args: list[str]) -> int:
+    env_vars: dict[str, str] = {}
+    mounts: list[dict[str, Any]] = []
+    idx = 0
+    while idx < len(args):
+        token = args[idx]
+        if token == "--rm":
+            idx += 1
+            continue
+        if token == "-e":
+            key, value = args[idx + 1].split("=", 1)
+            env_vars[key] = value
+            idx += 2
+            continue
+        if token == "-v":
+            mounts.append(_parse_mount(args[idx + 1]))
+            idx += 2
+            continue
+        break
+    if idx >= len(args):
+        print("fake docker run missing image ref", file=sys.stderr)
+        return 1
+    image_ref = args[idx]
+    run_args = args[idx + 1 :]
+
+    container = _ContainerMounts(mounts)
+    manifest = _load_manifest(container, env_vars)
+    step = _infer_step(image_ref, manifest)
+    mode = os.environ.get(f"FAKE_DOCKER_{step.upper().replace('-', '_')}_MODE", "pass")
+    if step.startswith("lidskjalv-"):
+        mode = os.environ.get(f"FAKE_DOCKER_{step.upper().replace('-', '_')}_MODE", mode)
+
+    run_entry: dict[str, Any] = {
+        "kind": "run",
+        "image": image_ref,
+        "step": step,
+        "mode": mode,
+        "env": env_vars,
+        "mounts": mounts,
+        "args": run_args,
+        "manifest": manifest,
+    }
+
+    def update(state: dict[str, Any]) -> None:
+        record = _append_command(state, run_entry)
+        state.setdefault("runs", []).append({k: v for k, v in record.items() if k != "kind"})
+
+    _mutate_state(update)
+
+    if mode == "missing-report":
+        return 0
+    if step == "brokk":
+        _run_brokk(container, manifest, mode)
+    elif step == "eitri":
+        _run_eitri(container, manifest, mode)
+    elif step == "andvari":
+        _run_andvari(container, manifest, mode)
+    elif step == "kvasir":
+        _run_kvasir(container, manifest, mode)
+    elif step in {"lidskjalv-original", "lidskjalv-generated"}:
+        _run_lidskjalv(container, manifest, mode)
+    else:
+        print(f"unknown fake step for image {image_ref}", file=sys.stderr)
+        return 1
+    return 0
+
+
+class _ContainerMounts:
+    def __init__(self, mounts: list[dict[str, Any]]) -> None:
+        self.mounts = mounts
+
+    def resolve(self, container_path: str) -> Path:
+        candidates = sorted(self.mounts, key=lambda item: len(item["container"]), reverse=True)
+        for mount in candidates:
+            container_root = mount["container"]
+            if container_path == container_root:
+                return Path(mount["host"])
+            prefix = container_root.rstrip("/") + "/"
+            if container_path.startswith(prefix):
+                suffix = container_path[len(prefix) :]
+                return Path(mount["host"]) / suffix
+        raise RuntimeError(f"fake docker could not resolve container path: {container_path}")
+
+
+def _parse_mount(spec: str) -> dict[str, Any]:
+    host, container, *rest = spec.split(":")
+    return {
+        "host": host,
+        "container": container,
+        "read_only": "ro" in rest,
+    }
+
+
+def _load_manifest(container: _ContainerMounts, env_vars: dict[str, str]) -> dict[str, Any]:
+    for key in ("BROKK_MANIFEST", "EITRI_MANIFEST", "ANDVARI_MANIFEST", "KVASIR_MANIFEST", "LIDSKJALV_MANIFEST"):
+        if key in env_vars:
+            manifest_path = env_vars[key]
+            break
+    else:
+        manifest_path = "/run/config/manifest.yaml"
+    path = container.resolve(manifest_path)
+    if not path.is_file():
+        return {}
+    loaded = loads(path.read_text(encoding="utf-8"))
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def _infer_step(image_ref: str, manifest: dict[str, Any]) -> str:
+    lowered = image_ref.lower()
+    if "brokk" in lowered:
+        return "brokk"
+    if "eitri" in lowered:
+        return "eitri"
+    if "andvari" in lowered:
+        return "andvari"
+    if "kvasir" in lowered:
+        return "kvasir"
+    if "lidskjalv" in lowered:
+        label = str(manifest.get("scan_label", "original"))
+        return f"lidskjalv-{label}"
+    return "unknown"
+
+
+def _run_brokk(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
+    run_root = container.resolve("/run")
+    source_manifest_path = run_root / "inputs" / "source-manifest.json"
+    original_repo = run_root / "artifacts" / "original-repo"
+    logs_dir = run_root / "artifacts" / "brokk" / "logs"
+    original_repo.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    (original_repo / "README.md").write_text("original repo\n", encoding="utf-8")
+    _write_json(
+        source_manifest_path,
+        {
+            "repo_url": manifest.get("repo_url"),
+            "commit_sha": manifest.get("commit_sha"),
+        },
+    )
+    _write_json(
+        run_root / "outputs" / "run_report.json",
+        {
+            "status": "passed" if mode == "pass" else "failed",
+            "run_id": manifest.get("run_id"),
+            "reason": None if mode == "pass" else "fake-brokk-failure",
+        },
+    )
+    _write_summary(run_root / "outputs" / "summary.md", "Brokk")
+
+
+def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
+    run_root = container.resolve("/run")
+    model_dir = run_root / "artifacts" / "model"
+    logs_dir = model_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    diagram_path = model_dir / "diagram.puml"
+    diagram_path.write_text("@startuml\nclass Demo\n@enduml\n", encoding="utf-8")
+    status = "passed"
+    reason = None
+    if mode == "failed-report":
+        status = "failed"
+        reason = "fake-eitri-failure"
+    elif mode == "error-report":
+        status = "error"
+        reason = "fake-eitri-error"
+    _write_json(
+        run_root / "outputs" / "run_report.json",
+        {
+            "status": status,
+            "run_id": manifest.get("run_id"),
+            "reason": reason,
+            "status_detail": reason,
+            "inputs": {
+                "source_relpaths": manifest.get("source_relpaths", []),
+            },
+            "artifacts": {
+                "diagram_path": "/run/artifacts/model/diagram.puml",
+            },
+            "type_count": 3,
+            "relation_count": 2,
+        },
+    )
+    _write_summary(run_root / "outputs" / "summary.md", "Eitri")
+
+
+def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
+    run_root = container.resolve("/run")
+    generated_repo = run_root / "artifacts" / "generated-repo"
+    logs_dir = run_root / "artifacts" / "andvari" / "logs"
+    report_dir = run_root / "artifacts" / "andvari" / "report"
+    generated_repo.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (generated_repo / "README.md").write_text("generated repo\n", encoding="utf-8")
+    status = "passed"
+    reason = None
+    if mode == "failed-report":
+        status = "failed"
+        reason = "fake-andvari-failure"
+    elif mode == "error-report":
+        status = "error"
+        reason = "fake-andvari-error"
+    _write_json(
+        run_root / "outputs" / "run_report.json",
+        {
+            "status": status,
+            "run_id": manifest.get("run_id"),
+            "reason": reason,
+            "adapter": manifest.get("adapter"),
+            "gating_mode": manifest.get("gating_mode"),
+            "inputs": {
+                "diagram_path": "/input/model/diagram.puml",
+            },
+            "artifacts": {
+                "generated_repo": "/run/artifacts/generated-repo",
+                "logs_dir": "/run/artifacts/andvari/logs",
+                "report_dir": "/run/artifacts/andvari/report",
+            },
+        },
+    )
+    _write_summary(run_root / "outputs" / "summary.md", "Andvari")
+
+
+def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
+    run_root = container.resolve("/run")
+    outputs_dir = run_root / "outputs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    status = "passed"
+    behavioral_verdict = "pass"
+    reason = None
+    if mode == "behavioral-fail":
+        behavioral_verdict = "fail"
+    elif mode == "failed-report":
+        status = "failed"
+        behavioral_verdict = "fail"
+        reason = "fake-kvasir-failure"
+    elif mode == "error-report":
+        status = "error"
+        behavioral_verdict = "fail"
+        reason = "fake-kvasir-error"
+    _write_json(
+        outputs_dir / "test_port.json",
+        {
+            "status": status,
+            "behavioral_verdict": behavioral_verdict,
+            "reason": reason,
+            "run_id": manifest.get("run_id"),
+        },
+    )
+
+
+def _run_lidskjalv(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
+    run_root = container.resolve("/run")
+    scan_label = str(manifest.get("scan_label", "original"))
+    scan_dir = run_root / "artifacts" / "scans" / scan_label
+    (scan_dir / "logs").mkdir(parents=True, exist_ok=True)
+    (scan_dir / "metadata").mkdir(parents=True, exist_ok=True)
+    (scan_dir / "workspace" / "repo").mkdir(parents=True, exist_ok=True)
+    _write_json(scan_dir / "metadata" / "scan-state.json", {"scan_label": scan_label})
+    status = "passed"
+    reason = None
+    if mode == "failed-report":
+        status = "failed"
+        reason = f"fake-lidskjalv-{scan_label}-failure"
+    elif mode == "error-report":
+        status = "error"
+        reason = f"fake-lidskjalv-{scan_label}-error"
+    _write_json(
+        run_root / "outputs" / "run_report.json",
+        {
+            "status": status,
+            "run_id": manifest.get("run_id"),
+            "scan_label": scan_label,
+            "project_key": manifest.get("project_key"),
+            "project_name": manifest.get("project_name"),
+            "reason": reason,
+        },
+    )
+    _write_summary(run_root / "outputs" / "summary.md", f"Lidskjalv {scan_label}")
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_summary(path: Path, title: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"# {title}\n", encoding="utf-8")
+
+
+def _image_id(image_ref: str) -> str:
+    digest = hashlib.sha256(image_ref.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _csv_env(name: str) -> set[str]:
+    value = os.environ.get(name, "")
+    if not value:
+        return set()
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def _record_command(entry: dict[str, Any]) -> None:
+    def update(state: dict[str, Any]) -> None:
+        _append_command(state, entry)
+
+    _mutate_state(update)
+
+
+def _append_command(state: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
+    sequence = int(state.get("next_seq", 1))
+    state["next_seq"] = sequence + 1
+    record = dict(entry)
+    record["seq"] = sequence
+    state.setdefault("commands", []).append(record)
+    return record
+
+
+def _mutate_state(callback) -> None:
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with STATE_PATH.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        raw = handle.read().strip()
+        state = json.loads(raw) if raw else {"available": {}, "commands": [], "runs": [], "next_seq": 1}
+        callback(state)
+        handle.seek(0)
+        handle.truncate()
+        handle.write(json.dumps(state, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
