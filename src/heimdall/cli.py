@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
-import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from heimdall.images import DockerError, ensure_docker_available, resolve_images
 from heimdall.manifest import ManifestValidationError, load_pipeline_manifest
-from heimdall.models import PullPolicy, RuntimeConfig
+from heimdall.models import PipelineConfig, PullPolicy, RuntimeConfig
 from heimdall.runner import PreflightError, run_pipeline
 from heimdall.utils import ensure_directory
 
@@ -61,10 +60,20 @@ def _run_command(args: argparse.Namespace) -> int:
     runs_root = args.runs_root.resolve()
     run_root = runs_root / config.run_id
     if run_root.exists():
-        raise PreflightError(f"Run directory already exists: {run_root}. Use resume instead.")
-    runtime = _build_runtime(runs_root, args.codex_bin_dir, args.codex_home_dir, args.pull_policy, args.verbose)
+        raise PreflightError(
+            f"Run directory already exists: {run_root}. Use resume instead."
+        )
+    runtime = _build_runtime(
+        runs_root,
+        args.codex_bin_dir,
+        args.codex_home_dir,
+        args.pull_policy,
+        args.verbose,
+    )
     _preflight(config, runtime)
-    resolved_images = resolve_images(config.images, runtime.pull_policy, verbose=runtime.verbose)
+    resolved_images = resolve_images(
+        config.images, runtime.pull_policy, verbose=runtime.verbose
+    )
     run_pipeline(
         config=config,
         runtime=runtime,
@@ -82,9 +91,17 @@ def _resume_command(args: argparse.Namespace) -> int:
     if not manifest_path.is_file():
         raise PreflightError(f"Missing stored pipeline manifest: {manifest_path}")
     raw_manifest, config = load_pipeline_manifest(manifest_path)
-    runtime = _build_runtime(run_root.parent, args.codex_bin_dir, args.codex_home_dir, args.pull_policy, args.verbose)
+    runtime = _build_runtime(
+        run_root.parent,
+        args.codex_bin_dir,
+        args.codex_home_dir,
+        args.pull_policy,
+        args.verbose,
+    )
     _preflight(config, runtime)
-    resolved_images = resolve_images(config.images, runtime.pull_policy, verbose=runtime.verbose)
+    resolved_images = resolve_images(
+        config.images, runtime.pull_policy, verbose=runtime.verbose
+    )
     run_pipeline(
         config=config,
         runtime=runtime,
@@ -118,9 +135,13 @@ def _build_runtime(
     )
 
 
-def _preflight(config, runtime: RuntimeConfig) -> None:
+def _preflight(config: PipelineConfig, runtime: RuntimeConfig) -> None:
     if runtime.verbose:
-        print(f"[heimdall] validating runtime under {runtime.runs_root}", file=sys.stderr, flush=True)
+        print(
+            f"[heimdall] validating runtime under {runtime.runs_root}",
+            file=sys.stderr,
+            flush=True,
+        )
     ensure_directory(runtime.runs_root, 0o755)
     if not os.access(runtime.runs_root, os.W_OK):
         raise PreflightError(f"Runs root is not writable: {runtime.runs_root}")
@@ -143,7 +164,9 @@ def _preflight(config, runtime: RuntimeConfig) -> None:
         if runtime.sonar_organization is None:
             missing.append("SONAR_ORGANIZATION")
         if missing:
-            raise PreflightError(f"Missing Sonar environment variable(s): {', '.join(missing)}")
+            raise PreflightError(
+                f"Missing Sonar environment variable(s): {', '.join(missing)}"
+            )
     if runtime.verbose and not config.lidskjalv.skip_sonar:
         print("[heimdall] sonar environment present", file=sys.stderr, flush=True)
 

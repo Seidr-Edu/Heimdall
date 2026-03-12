@@ -13,7 +13,9 @@ def loads(text: str) -> object:
         return OrderedDict()
     value, next_index = _parse_block(lines, 0, lines[0].indent)
     if next_index != len(lines):
-        raise YamlError(f"Unexpected trailing content on line {lines[next_index].lineno}")
+        raise YamlError(
+            f"Unexpected trailing content on line {lines[next_index].lineno}"
+        )
     return value
 
 
@@ -56,7 +58,9 @@ def _parse_block(lines: list[_Line], index: int, indent: int) -> tuple[object, i
     return _parse_mapping(lines, index, indent)
 
 
-def _parse_mapping(lines: list[_Line], index: int, indent: int) -> tuple[OrderedDict[str, object], int]:
+def _parse_mapping(
+    lines: list[_Line], index: int, indent: int
+) -> tuple[OrderedDict[str, object], int]:
     mapping: OrderedDict[str, object] = OrderedDict()
     while index < len(lines):
         line = lines[index]
@@ -81,7 +85,9 @@ def _parse_mapping(lines: list[_Line], index: int, indent: int) -> tuple[Ordered
     return mapping, index
 
 
-def _parse_list(lines: list[_Line], index: int, indent: int) -> tuple[list[object], int]:
+def _parse_list(
+    lines: list[_Line], index: int, indent: int
+) -> tuple[list[object], int]:
     values: list[object] = []
     while index < len(lines):
         line = lines[index]
@@ -174,9 +180,13 @@ def _strip_comment(value: str) -> str:
             in_single = not in_single
         elif char == '"' and not in_single:
             in_double = not in_double
-        elif char == "#" and not in_single and not in_double:
-            if idx == 0 or value[idx - 1].isspace():
-                return value[:idx].rstrip()
+        elif (
+            char == "#"
+            and not in_single
+            and not in_double
+            and (idx == 0 or value[idx - 1].isspace())
+        ):
+            return value[:idx].rstrip()
     return value
 
 
@@ -234,7 +244,25 @@ def _dump_scalar(value: object) -> str:
 
 
 def _needs_quotes(value: str) -> bool:
-    special_prefixes = ("-", "?", ":", "@", "`", "{", "}", "[", "]", ",", "&", "*", "!", "|", ">", "%", "#")
+    special_prefixes = (
+        "-",
+        "?",
+        ":",
+        "@",
+        "`",
+        "{",
+        "}",
+        "[",
+        "]",
+        ",",
+        "&",
+        "*",
+        "!",
+        "|",
+        ">",
+        "%",
+        "#",
+    )
     if value.startswith(special_prefixes):
         return True
     if value in {"true", "false", "null", "Null", "NULL", "~"}:
@@ -245,6 +273,4 @@ def _needs_quotes(value: str) -> bool:
         return True
     if any(ch in value for ch in ("\n", "\r", "\t")):
         return True
-    if "# " in value or value.endswith("#"):
-        return True
-    return False
+    return bool("# " in value or value.endswith("#"))

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import sys
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
-import sys
 
 from heimdall import __version__
 from heimdall.adapters import (
-    AdapterContext,
     STEP_DEFINITIONS,
+    AdapterContext,
     classify_report,
     prepare_step,
     step_definitions,
@@ -16,7 +16,13 @@ from heimdall.adapters import (
 )
 from heimdall.images import run_container
 from heimdall.manifest import pipeline_to_document, runtime_snapshot
-from heimdall.models import PipelineConfig, ResolvedImages, RuntimeConfig, StepResult, StepState
+from heimdall.models import (
+    PipelineConfig,
+    ResolvedImages,
+    RuntimeConfig,
+    StepResult,
+    StepState,
+)
 from heimdall.reporting import write_artifact_index, write_run_outputs
 from heimdall.simpleyaml import dumps
 from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
@@ -53,7 +59,9 @@ def run_pipeline(
     resolved_path = pipeline_dir / "resolved.yaml"
 
     if fresh_run and run_root.exists() and manifest_copy_path.exists():
-        raise PreflightError(f"Run directory already exists: {run_root}. Use resume instead.")
+        raise PreflightError(
+            f"Run directory already exists: {run_root}. Use resume instead."
+        )
 
     write_text(manifest_copy_path, source_manifest_text)
 
@@ -62,7 +70,12 @@ def run_pipeline(
     store = StateStore(state_path, steps)
     started_at = timestamp_utc()
     runtime_view = runtime_snapshot(runtime)
-    context = AdapterContext(config=config, runtime=runtime, run_root=run_root, resolved_images=resolved_images)
+    context = AdapterContext(
+        config=config,
+        runtime=runtime,
+        run_root=run_root,
+        resolved_images=resolved_images,
+    )
 
     _write_resolved(resolved_path, config, runtime_view, resolved_images, run_root)
     _emit(context.runtime, f"starting run {config.run_id} in {run_root}")
@@ -72,7 +85,15 @@ def run_pipeline(
     steps_snapshot, artifacts_snapshot = store.snapshot()
     finished_at = timestamp_utc()
     write_artifact_index(artifact_index_path, config.run_id, artifacts_snapshot)
-    write_run_outputs(run_report_path, summary_path, config.run_id, steps_snapshot, artifacts_snapshot, started_at, finished_at)
+    write_run_outputs(
+        run_report_path,
+        summary_path,
+        config.run_id,
+        steps_snapshot,
+        artifacts_snapshot,
+        started_at,
+        finished_at,
+    )
     _emit(context.runtime, f"finished run {config.run_id}")
     return run_root
 
@@ -83,7 +104,9 @@ def _run_scheduler(
     runtime_view: dict[str, object],
     fresh_run: bool,
 ) -> None:
-    reusable = _compute_reuse_plan(context, store.snapshot()[0], runtime_view, fresh_run)
+    reusable = _compute_reuse_plan(
+        context, store.snapshot()[0], runtime_view, fresh_run
+    )
     futures: dict[Future[StepResult], str] = {}
     finished: dict[str, StepResult] = {}
     pending = set(topological_steps())
@@ -92,12 +115,20 @@ def _run_scheduler(
         while pending or futures:
             for step in list(pending):
                 definition = STEP_DEFINITIONS[step]
-                if any(dependency not in finished for dependency in definition.depends_on):
+                if any(
+                    dependency not in finished for dependency in definition.depends_on
+                ):
                     continue
-                blocked_by = [dependency for dependency in definition.depends_on if finished[dependency].status not in {"passed", "skipped"}]
+                blocked_by = [
+                    dependency
+                    for dependency in definition.depends_on
+                    if finished[dependency].status not in {"passed", "skipped"}
+                ]
                 if blocked_by:
                     result = _blocked_result(step, context, blocked_by, runtime_view)
-                    _emit(context.runtime, f"[{step}] blocked by {', '.join(blocked_by)}")
+                    _emit(
+                        context.runtime, f"[{step}] blocked by {', '.join(blocked_by)}"
+                    )
                     finished[step] = result
                     pending.remove(step)
                     store.update_step(step, _step_state_from_result(result))
@@ -114,7 +145,9 @@ def _run_scheduler(
                 future = executor.submit(_execute_step, step, context, runtime_view)
                 futures[future] = step
                 pending.remove(step)
-                store.update_step(step, StepState(status="running", started_at=timestamp_utc()))
+                store.update_step(
+                    step, StepState(status="running", started_at=timestamp_utc())
+                )
                 _emit(context.runtime, f"[{step}] started")
             if not futures:
                 continue
@@ -126,7 +159,10 @@ def _run_scheduler(
                 store.update_step(step, _step_state_from_result(result))
                 if result.artifacts:
                     store.add_artifacts(result.artifacts)
-                _emit(context.runtime, f"[{step}] finished status={result.status} reason={result.reason or '-'}")
+                _emit(
+                    context.runtime,
+                    f"[{step}] finished status={result.status} reason={result.reason or '-'}",
+                )
 
 
 def _compute_reuse_plan(
@@ -160,7 +196,9 @@ def _compute_reuse_plan(
         prepared = prepare_step(step, context)
         upstream_hashes = {
             dep: hash_file(path)
-            for dep, path in upstream_report_dependencies(step, context.run_root).items()
+            for dep, path in upstream_report_dependencies(
+                step, context.run_root
+            ).items()
             if path.is_file()
         }
         current_fingerprint = fingerprint_step(
@@ -191,7 +229,9 @@ def _compute_reuse_plan(
     return reusable
 
 
-def _execute_step(step: str, context: AdapterContext, runtime_view: dict[str, object]) -> StepResult:
+def _execute_step(
+    step: str, context: AdapterContext, runtime_view: dict[str, object]
+) -> StepResult:
     prepared = prepare_step(step, context)
     started_at = timestamp_utc()
     log_path = context.run_root / "pipeline" / "logs" / f"{step}.log"
@@ -209,10 +249,13 @@ def _execute_step(step: str, context: AdapterContext, runtime_view: dict[str, ob
         upstream_report_hashes=upstream_hashes,
         runtime_snapshot=runtime_view,
     )
-    completed = run_container(
+    run_container(
         prepared.configured_image_ref,
         prepared.env,
-        [(mount.host_path, mount.container_path, mount.read_only) for mount in prepared.mounts],
+        [
+            (mount.host_path, mount.container_path, mount.read_only)
+            for mount in prepared.mounts
+        ],
         stream_output=context.runtime.verbose,
         output_path=log_path,
         log_prefix=step if context.runtime.verbose else None,
@@ -258,7 +301,12 @@ def _read_report_status(path: Path) -> str | None:
     return str(raw) if raw is not None else None
 
 
-def _blocked_result(step: str, context: AdapterContext, blocked_by: list[str], runtime_view: dict[str, object]) -> StepResult:
+def _blocked_result(
+    step: str,
+    context: AdapterContext,
+    blocked_by: list[str],
+    runtime_view: dict[str, object],
+) -> StepResult:
     prepared = prepare_step(step, context, stage_inputs=False)
     fingerprint = fingerprint_step(
         orchestrator_version=__version__,
@@ -267,7 +315,9 @@ def _blocked_result(step: str, context: AdapterContext, blocked_by: list[str], r
         manifest_text=prepared.manifest_text,
         upstream_report_hashes={
             dep: hash_file(path)
-            for dep, path in upstream_report_dependencies(step, context.run_root).items()
+            for dep, path in upstream_report_dependencies(
+                step, context.run_root
+            ).items()
             if path.is_file()
         },
         runtime_snapshot=runtime_view,
@@ -357,7 +407,9 @@ def _write_resolved(
         },
         "pipeline": pipeline_to_document(config),
     }
-    source_manifest_path = run_root / "services" / "brokk" / "run" / "inputs" / "source-manifest.json"
+    source_manifest_path = (
+        run_root / "services" / "brokk" / "run" / "inputs" / "source-manifest.json"
+    )
     if source_manifest_path.is_file():
         document["source_manifest"] = str(source_manifest_path)
     write_text(path, dumps(document))

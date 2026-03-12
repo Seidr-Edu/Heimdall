@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlparse
-import re
 
 from heimdall.models import (
     AndvariConfig,
@@ -32,7 +32,9 @@ def load_pipeline_manifest(path: Path) -> tuple[str, PipelineConfig]:
     try:
         raw_text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ManifestValidationError(f"Failed to read pipeline manifest: {path} ({exc})") from exc
+        raise ManifestValidationError(
+            f"Failed to read pipeline manifest: {path} ({exc})"
+        ) from exc
 
     try:
         loaded = loads(raw_text)
@@ -89,7 +91,9 @@ def pipeline_to_document(config: PipelineConfig) -> dict[str, object]:
             "original_subdir": config.kvasir.original_subdir,
             "generated_subdir": config.kvasir.generated_subdir,
             "max_iter": config.kvasir.max_iter,
-            "write_scope_ignore_prefixes": list(config.kvasir.write_scope_ignore_prefixes),
+            "write_scope_ignore_prefixes": list(
+                config.kvasir.write_scope_ignore_prefixes
+            ),
         },
         "lidskjalv": {
             "skip_sonar": config.lidskjalv.skip_sonar,
@@ -160,7 +164,9 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
     )
     version = _require_int(data, "version", "root")
     if version != 1:
-        raise ManifestValidationError(f"Unsupported pipeline manifest version: {version!r}")
+        raise ManifestValidationError(
+            f"Unsupported pipeline manifest version: {version!r}"
+        )
     run_id = _optional_str(data, "run_id", "root") or compact_run_id()
 
     source_data = _require_mapping(data, "source", "root")
@@ -169,11 +175,15 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
     commit_sha = _require_str(source_data, "commit_sha", "source")
     _validate_repo_url(repo_url)
     if not _SHA_RE.fullmatch(commit_sha):
-        raise ManifestValidationError("source.commit_sha must be a full 40-character lowercase SHA")
+        raise ManifestValidationError(
+            "source.commit_sha must be a full 40-character lowercase SHA"
+        )
     source = SourceConfig(repo_url=repo_url, commit_sha=commit_sha)
 
     images_data = _require_mapping(data, "images", "root")
-    _reject_unknown_keys(images_data, {"brokk", "eitri", "andvari", "kvasir", "lidskjalv"}, "images")
+    _reject_unknown_keys(
+        images_data, {"brokk", "eitri", "andvari", "kvasir", "lidskjalv"}, "images"
+    )
     images = ImageRefs(
         brokk=_require_str(images_data, "brokk", "images"),
         eitri=_require_str(images_data, "eitri", "images"),
@@ -185,10 +195,19 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
     eitri_data = _optional_mapping(data, "eitri", "root")
     _reject_unknown_keys(
         eitri_data,
-        {"source_relpaths", "parser_extension", "writer_extension", "verbose", "writers"},
+        {
+            "source_relpaths",
+            "parser_extension",
+            "writer_extension",
+            "verbose",
+            "writers",
+        },
         "eitri",
     )
-    source_relpaths = tuple(_string_list(eitri_data.get("source_relpaths"), "eitri.source_relpaths") or ["."])
+    source_relpaths = tuple(
+        _string_list(eitri_data.get("source_relpaths"), "eitri.source_relpaths")
+        or ["."]
+    )
     writers = eitri_data.get("writers", {})
     if not isinstance(writers, Mapping):
         raise ManifestValidationError("eitri.writers must be a mapping/object")
@@ -208,18 +227,29 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
     )
     gating_mode = _optional_str(andvari_data, "gating_mode", "andvari") or "model"
     if gating_mode not in {"model", "fixed"}:
-        raise ManifestValidationError("andvari.gating_mode must be one of: model, fixed")
+        raise ManifestValidationError(
+            "andvari.gating_mode must be one of: model, fixed"
+        )
     andvari = AndvariConfig(
         gating_mode=gating_mode,
         max_iter=_optional_int(andvari_data, "max_iter", "andvari", 8),
-        max_gate_revisions=_optional_int(andvari_data, "max_gate_revisions", "andvari", 3),
-        model_gate_timeout_sec=_optional_int(andvari_data, "model_gate_timeout_sec", "andvari", 120),
+        max_gate_revisions=_optional_int(
+            andvari_data, "max_gate_revisions", "andvari", 3
+        ),
+        model_gate_timeout_sec=_optional_int(
+            andvari_data, "model_gate_timeout_sec", "andvari", 120
+        ),
     )
 
     kvasir_data = _optional_mapping(data, "kvasir", "root")
     _reject_unknown_keys(
         kvasir_data,
-        {"original_subdir", "generated_subdir", "max_iter", "write_scope_ignore_prefixes"},
+        {
+            "original_subdir",
+            "generated_subdir",
+            "max_iter",
+            "write_scope_ignore_prefixes",
+        },
         "kvasir",
     )
     kvasir = KvasirConfig(
@@ -227,7 +257,10 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
         generated_subdir=_optional_str(kvasir_data, "generated_subdir", "kvasir"),
         max_iter=_optional_int(kvasir_data, "max_iter", "kvasir", 5),
         write_scope_ignore_prefixes=tuple(
-            _string_list(kvasir_data.get("write_scope_ignore_prefixes"), "kvasir.write_scope_ignore_prefixes")
+            _string_list(
+                kvasir_data.get("write_scope_ignore_prefixes"),
+                "kvasir.write_scope_ignore_prefixes",
+            )
             or []
         ),
     )
@@ -235,7 +268,13 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
     lidskjalv_data = _optional_mapping(data, "lidskjalv", "root")
     _reject_unknown_keys(
         lidskjalv_data,
-        {"skip_sonar", "sonar_wait_timeout_sec", "sonar_wait_poll_sec", "original", "generated"},
+        {
+            "skip_sonar",
+            "sonar_wait_timeout_sec",
+            "sonar_wait_poll_sec",
+            "original",
+            "generated",
+        },
         "lidskjalv",
     )
     lidskjalv = LidskjalvConfig(
@@ -246,8 +285,12 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
         sonar_wait_poll_sec=_optional_int(
             lidskjalv_data, "sonar_wait_poll_sec", "lidskjalv", 5
         ),
-        original=_parse_lidskjalv_target(lidskjalv_data.get("original"), "lidskjalv.original"),
-        generated=_parse_lidskjalv_target(lidskjalv_data.get("generated"), "lidskjalv.generated"),
+        original=_parse_lidskjalv_target(
+            lidskjalv_data.get("original"), "lidskjalv.original"
+        ),
+        generated=_parse_lidskjalv_target(
+            lidskjalv_data.get("generated"), "lidskjalv.generated"
+        ),
     )
     return PipelineConfig(
         version=version,
@@ -284,28 +327,40 @@ def _validate_repo_url(repo_url: str) -> None:
     if parsed.username or parsed.password:
         raise ManifestValidationError("source.repo_url must not include credentials")
     if parsed.query or parsed.fragment:
-        raise ManifestValidationError("source.repo_url must not include query or fragment components")
+        raise ManifestValidationError(
+            "source.repo_url must not include query or fragment components"
+        )
     segments = [segment for segment in parsed.path.split("/") if segment]
     if len(segments) != 2:
-        raise ManifestValidationError("source.repo_url must match https://github.com/<owner>/<repo>[.git]")
+        raise ManifestValidationError(
+            "source.repo_url must match https://github.com/<owner>/<repo>[.git]"
+        )
     if not segments[0] or not segments[1]:
-        raise ManifestValidationError("source.repo_url must identify a GitHub repository")
+        raise ManifestValidationError(
+            "source.repo_url must identify a GitHub repository"
+        )
 
 
-def _reject_unknown_keys(data: Mapping[str, object], allowed: set[str], path: str) -> None:
+def _reject_unknown_keys(
+    data: Mapping[str, object], allowed: set[str], path: str
+) -> None:
     unknown = sorted(set(data.keys()) - allowed)
     if unknown:
         raise ManifestValidationError(f"Unknown key(s) at {path}: {', '.join(unknown)}")
 
 
-def _require_mapping(data: Mapping[str, object], key: str, path: str) -> dict[str, object]:
+def _require_mapping(
+    data: Mapping[str, object], key: str, path: str
+) -> dict[str, object]:
     value = data.get(key)
     if not isinstance(value, Mapping):
         raise ManifestValidationError(f"{path}.{key} must be a mapping/object")
     return dict(value)
 
 
-def _optional_mapping(data: Mapping[str, object], key: str, path: str) -> dict[str, object]:
+def _optional_mapping(
+    data: Mapping[str, object], key: str, path: str
+) -> dict[str, object]:
     value = data.get(key)
     if value is None:
         return {}
@@ -346,7 +401,9 @@ def _optional_int(data: Mapping[str, object], key: str, path: str, default: int)
     return value
 
 
-def _optional_bool(data: Mapping[str, object], key: str, path: str, default: bool) -> bool:
+def _optional_bool(
+    data: Mapping[str, object], key: str, path: str, default: bool
+) -> bool:
     value = data.get(key)
     if value is None:
         return default
@@ -358,6 +415,8 @@ def _optional_bool(data: Mapping[str, object], key: str, path: str, default: boo
 def _string_list(value: object, path: str) -> list[str] | None:
     if value is None:
         return None
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
         raise ManifestValidationError(f"{path} must be an array of non-empty strings")
     return [item.strip() for item in value]

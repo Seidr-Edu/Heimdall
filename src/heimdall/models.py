@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Literal
 
 PullPolicy = Literal["if-missing", "always", "never"]
-StepStatus = Literal["pending", "running", "passed", "failed", "error", "blocked", "skipped"]
+StepStatus = Literal[
+    "pending", "running", "passed", "failed", "error", "blocked", "skipped"
+]
 
 STEP_BROKK = "brokk"
 STEP_EITRI = "eitri"
