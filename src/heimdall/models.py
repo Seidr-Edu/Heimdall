@@ -144,6 +144,8 @@ class StepPrepared:
     manifest_text: str
     env: dict[str, str]
     mounts: tuple[DockerMount, ...]
+    provider_bin_source: Path | None = None
+    provider_bin_dest: Path | None = None
     provider_seed_source: Path | None = None
     provider_seed_dest: Path | None = None
 

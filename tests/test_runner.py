@@ -269,6 +269,51 @@ class RunnerIntegrationTest(unittest.TestCase):
         )
         self.assertTrue((kvasir_seed / "tmp" / "arg0").is_file())
 
+    def test_codex_bin_dir_is_staged_into_executable_provider_bin_mounts(self) -> None:
+        real_provider_bin = self.root / "real-provider-bin"
+        real_provider_bin.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.bin_dir / "codex", real_provider_bin / "codex")
+        (real_provider_bin / "codex").chmod(0o700)
+
+        provider_bin_dir = self.root / "provider-symlink-bin"
+        provider_bin_dir.mkdir(parents=True, exist_ok=True)
+        (provider_bin_dir / "codex").symlink_to(real_provider_bin / "codex")
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(provider_bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+
+        andvari_bin = self._mount_host_path(run_by_step["andvari"], "/opt/provider/bin")
+        kvasir_bin = self._mount_host_path(run_by_step["kvasir"], "/opt/provider/bin")
+
+        self.assertEqual(
+            andvari_bin.resolve(),
+            (run_root / "services" / "andvari" / "input" / "provider-bin").resolve(),
+        )
+        self.assertEqual(
+            kvasir_bin.resolve(),
+            (run_root / "services" / "kvasir" / "input" / "provider-bin").resolve(),
+        )
+        self.assertNotEqual(andvari_bin, provider_bin_dir)
+        self.assertTrue((provider_bin_dir / "codex").is_symlink())
+        self.assertFalse((andvari_bin / "codex").is_symlink())
+        self.assertEqual((andvari_bin / "codex").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((kvasir_bin / "codex").stat().st_mode & 0o777, 0o755)
+
     def test_preflight_requires_sonar_when_enabled(self) -> None:
         sonar_manifest = build_pipeline_manifest(
             skip_sonar=False, run_id="20260312T120000Z__sonar"

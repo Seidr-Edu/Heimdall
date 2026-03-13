@@ -37,6 +37,48 @@ python3 -m heimdall resume /abs/path/runs/<run_id> \
 `python3 -m heimdall.cli ...` works as well. After installation the console
 entrypoint is `orchestrator`.
 
+## VPS env setup
+
+Heimdall reads Sonar credentials from the shell environment, not from the
+public pipeline manifest. For a VPS deployment, keep them in a local `.env`
+file that is not committed.
+
+Example setup on the VPS:
+
+```bash
+cd /home/munin/Heimdall
+
+cat > .env <<'EOF'
+SONAR_HOST_URL=https://sonarcloud.io
+SONAR_TOKEN=replace-me
+SONAR_ORGANIZATION=replace-me
+EOF
+
+chmod 600 .env
+grep -qxF '.env' .git/info/exclude || printf '\n.env\n' >> .git/info/exclude
+git check-ignore -v .env
+```
+
+Load the file before each `heimdall.cli run` or `resume`:
+
+```bash
+cd /home/munin/Heimdall
+set -a
+. ./.env
+set +a
+```
+
+Quick checks:
+
+```bash
+printenv SONAR_HOST_URL
+[ -n "${SONAR_TOKEN:-}" ] && echo "SONAR_TOKEN is set" || echo "SONAR_TOKEN is not set"
+```
+
+Use `.git/info/exclude` for VPS-only secret files so the ignore rule stays
+local to that machine. If you want a repo-wide ignore rule for `.env`, add it
+to `.gitignore` intentionally and commit that change separately.
+
 ## Public manifest
 
 See [examples/pipeline.example.yaml](/Users/oleremidahl/Documents/Master/Heimdall/examples/pipeline.example.yaml).
@@ -49,6 +91,7 @@ Key rules:
 - `images.*` accept any Docker image ref string, but production manifests should
   use immutable digests
 - no public `provider.*` host-path block is allowed
+- do not put secrets such as `SONAR_TOKEN` in the manifest
 - unknown top-level keys are rejected
 - `eitri.writers` is passed through directly to Eitri, so nested keys must match
   Eitri's real PlantUML config schema such as `diagramName` or `hidePrivate`

@@ -28,6 +28,7 @@ from heimdall.simpleyaml import dumps
 from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
 from heimdall.utils import (
     ensure_directory,
+    stage_executable_tree,
     stage_readable_tree,
     timestamp_utc,
     write_text,
@@ -254,6 +255,11 @@ def _execute_step(
         upstream_report_hashes=upstream_hashes,
         runtime_snapshot=runtime_view,
     )
+    if prepared.provider_bin_source is not None and prepared.provider_bin_dest is not None:
+        stage_executable_tree(
+            prepared.provider_bin_source,
+            prepared.provider_bin_dest,
+        )
     if (
         prepared.provider_seed_source is not None
         and prepared.provider_seed_dest is not None

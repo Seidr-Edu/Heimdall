@@ -32,19 +32,31 @@ def read_json(path: Path) -> dict[str, object]:
 
 
 def stage_readable_tree(source: Path, destination: Path) -> None:
+    _stage_tree(source, destination, preserve_executable_files=False)
+
+
+def stage_executable_tree(source: Path, destination: Path) -> None:
+    _stage_tree(source, destination, preserve_executable_files=True)
+
+
+def _stage_tree(
+    source: Path, destination: Path, *, preserve_executable_files: bool
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         shutil.rmtree(destination)
     try:
         shutil.copytree(source, destination, copy_function=shutil.copy2)
-        _chmod_tree_readable(destination)
+        _chmod_tree(
+            destination, preserve_executable_files=preserve_executable_files
+        )
     except OSError as exc:
         raise RuntimeError(
             f"Failed to stage readable copy from {source} to {destination}: {exc}"
         ) from exc
 
 
-def _chmod_tree_readable(root: Path) -> None:
+def _chmod_tree(root: Path, *, preserve_executable_files: bool) -> None:
     root.chmod(0o755)
     for current_root, dir_names, file_names in os.walk(root):
         current = Path(current_root)
@@ -52,4 +64,9 @@ def _chmod_tree_readable(root: Path) -> None:
         for dir_name in dir_names:
             (current / dir_name).chmod(0o755)
         for file_name in file_names:
-            (current / file_name).chmod(0o644)
+            file_path = current / file_name
+            is_executable = bool(file_path.stat().st_mode & 0o111)
+            if preserve_executable_files and is_executable:
+                file_path.chmod(0o755)
+            else:
+                file_path.chmod(0o644)
