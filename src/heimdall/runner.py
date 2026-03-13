@@ -26,7 +26,7 @@ from heimdall.models import (
 from heimdall.reporting import write_artifact_index, write_run_outputs
 from heimdall.simpleyaml import dumps
 from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
-from heimdall.utils import ensure_directory, timestamp_utc, write_text
+from heimdall.utils import ensure_directory, stage_readable_tree, timestamp_utc, write_text
 
 
 class PreflightError(RuntimeError):
@@ -249,6 +249,14 @@ def _execute_step(
         upstream_report_hashes=upstream_hashes,
         runtime_snapshot=runtime_view,
     )
+    if (
+        prepared.provider_seed_source is not None
+        and prepared.provider_seed_dest is not None
+    ):
+        stage_readable_tree(
+            prepared.provider_seed_source,
+            prepared.provider_seed_dest,
+        )
     run_container(
         prepared.configured_image_ref,
         prepared.env,

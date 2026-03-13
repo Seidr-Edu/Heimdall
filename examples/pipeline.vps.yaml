@@ -1,8 +1,8 @@
-# Copy/edit this file for live Heimdall runs.
-# Replace the placeholder repo, commit SHA, and GHCR digests before running.
+# VPS-oriented Heimdall manifest.
+# Update run_id before each fresh `heimdall.cli run`.
 
 version: 1
-run_id: 20260312T094741Z__local
+run_id: 20260313T000000Z__vps
 
 source:
   repo_url: https://github.com/seidr-edu/Eitri.git
@@ -38,8 +38,8 @@ lidskjalv:
   sonar_wait_timeout_sec: 300
   sonar_wait_poll_sec: 5
   original:
-    project_key: heimdall_local_original
-    project_name: Heimdall local original
+    project_key: heimdall_vps_original
+    project_name: Heimdall VPS original
   generated:
-    project_key: heimdall_local_generated
-    project_name: Heimdall local generated
+    project_key: heimdall_vps_generated
+    project_name: Heimdall VPS generated

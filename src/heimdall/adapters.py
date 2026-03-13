@@ -100,6 +100,8 @@ def prepare_step(
     mounts: tuple[DockerMount, ...]
     image_ref: str
     resolved_image_id: str
+    provider_seed_source: Path | None = None
+    provider_seed_dest: Path | None = None
 
     if step == STEP_BROKK:
         payload = {
@@ -155,18 +157,19 @@ def prepare_step(
             destination_diagram = input_model_dir / "diagram.puml"
             shutil.copy2(source_diagram, destination_diagram)
             destination_diagram.chmod(0o644)
+        provider_seed_dir = service_root / "input" / "provider-seed"
         env = {"ANDVARI_MANIFEST": "/run/config/manifest.yaml"}
         mounts = (
             DockerMount(input_model_dir, "/input/model", True),
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(context.runtime.codex_bin_dir, "/opt/provider/bin", True),
-            DockerMount(
-                context.runtime.codex_home_dir, "/opt/provider-seed/codex-home", True
-            ),
+            DockerMount(provider_seed_dir, "/opt/provider-seed/codex-home", True),
         )
         image_ref = context.config.images.andvari
         resolved_image_id = context.resolved_images.andvari
+        provider_seed_source = context.runtime.codex_home_dir
+        provider_seed_dest = provider_seed_dir
     elif step == STEP_KVASIR:
         payload = {
             "version": 1,
@@ -183,6 +186,7 @@ def prepare_step(
             payload["write_scope_ignore_prefixes"] = list(
                 context.config.kvasir.write_scope_ignore_prefixes
             )
+        provider_seed_dir = service_root / "input" / "provider-seed"
         env = {"KVASIR_MANIFEST": "/run/config/manifest.yaml"}
         mounts = (
             DockerMount(
@@ -195,12 +199,12 @@ def prepare_step(
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(context.runtime.codex_bin_dir, "/opt/provider/bin", True),
-            DockerMount(
-                context.runtime.codex_home_dir, "/opt/provider-seed/codex-home", True
-            ),
+            DockerMount(provider_seed_dir, "/opt/provider-seed/codex-home", True),
         )
         image_ref = context.config.images.kvasir
         resolved_image_id = context.resolved_images.kvasir
+        provider_seed_source = context.runtime.codex_home_dir
+        provider_seed_dest = provider_seed_dir
     else:
         generated = step == STEP_LIDSKJALV_GENERATED
         defaults = _derive_scan_defaults(context)
@@ -261,6 +265,8 @@ def prepare_step(
         manifest_text=manifest_text,
         env=env,
         mounts=mounts,
+        provider_seed_source=provider_seed_source,
+        provider_seed_dest=provider_seed_dest,
     )
 
 

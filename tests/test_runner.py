@@ -209,6 +209,66 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["andvari"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
 
+    def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
+        write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
+        write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
+        write_file(self.home_dir / "tmp" / "arg0", "transient\n", mode=0o600)
+        write_file(
+            self.home_dir / "log" / "codex-login.log",
+            "login ok\n",
+            mode=0o600,
+        )
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+
+        andvari_seed = self._mount_host_path(
+            run_by_step["andvari"], "/opt/provider-seed/codex-home"
+        )
+        kvasir_seed = self._mount_host_path(
+            run_by_step["kvasir"], "/opt/provider-seed/codex-home"
+        )
+
+        self.assertEqual(
+            andvari_seed.resolve(),
+            (run_root / "services" / "andvari" / "input" / "provider-seed").resolve(),
+        )
+        self.assertEqual(
+            kvasir_seed.resolve(),
+            (run_root / "services" / "kvasir" / "input" / "provider-seed").resolve(),
+        )
+        self.assertNotEqual(andvari_seed, self.home_dir)
+        self.assertNotEqual(kvasir_seed, self.home_dir)
+
+        self.assertEqual(
+            (self.home_dir / "tmp" / "arg0").stat().st_mode & 0o777,
+            0o600,
+        )
+        self.assertEqual((andvari_seed / "auth.json").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((andvari_seed / "config.toml").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((andvari_seed / "tmp").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((andvari_seed / "tmp" / "arg0").stat().st_mode & 0o777, 0o644)
+        self.assertEqual(
+            (andvari_seed / "log" / "codex-login.log").stat().st_mode & 0o777,
+            0o644,
+        )
+        self.assertTrue((kvasir_seed / "tmp" / "arg0").is_file())
+
     def test_preflight_requires_sonar_when_enabled(self) -> None:
         sonar_manifest = build_pipeline_manifest(
             skip_sonar=False, run_id="20260312T120000Z__sonar"
@@ -241,6 +301,14 @@ class RunnerIntegrationTest(unittest.TestCase):
             cwd=str(self.root),
             env=env,
         )
+
+    def _mount_host_path(
+        self, run_entry: dict[str, object], container_path: str
+    ) -> Path:
+        for mount in run_entry["mounts"]:
+            if mount["container"] == container_path:
+                return Path(mount["host"])
+        self.fail(f"missing mount for {container_path}")
 
 
 if __name__ == "__main__":
