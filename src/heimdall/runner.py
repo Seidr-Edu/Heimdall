@@ -26,7 +26,12 @@ from heimdall.models import (
 from heimdall.reporting import write_artifact_index, write_run_outputs
 from heimdall.simpleyaml import dumps
 from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
-from heimdall.utils import ensure_directory, stage_readable_tree, timestamp_utc, write_text
+from heimdall.utils import (
+    ensure_directory,
+    stage_readable_tree,
+    timestamp_utc,
+    write_text,
+)
 
 
 class PreflightError(RuntimeError):
