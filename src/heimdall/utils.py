@@ -47,9 +47,7 @@ def _stage_tree(
         shutil.rmtree(destination)
     try:
         shutil.copytree(source, destination, copy_function=shutil.copy2)
-        _chmod_tree(
-            destination, preserve_executable_files=preserve_executable_files
-        )
+        _chmod_tree(destination, preserve_executable_files=preserve_executable_files)
     except OSError as exc:
         raise RuntimeError(
             f"Failed to stage readable copy from {source} to {destination}: {exc}"

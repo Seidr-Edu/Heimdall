@@ -255,7 +255,10 @@ def _execute_step(
         upstream_report_hashes=upstream_hashes,
         runtime_snapshot=runtime_view,
     )
-    if prepared.provider_bin_source is not None and prepared.provider_bin_dest is not None:
+    if (
+        prepared.provider_bin_source is not None
+        and prepared.provider_bin_dest is not None
+    ):
         stage_executable_tree(
             prepared.provider_bin_source,
             prepared.provider_bin_dest,
