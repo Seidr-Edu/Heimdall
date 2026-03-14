@@ -197,7 +197,9 @@ def _build_runtime(
     runs_root = runs_root.resolve()
     codex_bin_dir = codex_bin_dir.resolve()
     codex_host_bin_dir = (
-        codex_host_bin_dir.resolve() if codex_host_bin_dir is not None else codex_bin_dir
+        codex_host_bin_dir.resolve()
+        if codex_host_bin_dir is not None
+        else codex_bin_dir
     )
     codex_home_dir = codex_home_dir.resolve()
     return RuntimeConfig(
@@ -262,7 +264,9 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         )
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     if not os.access(output_dir.parent, os.W_OK):
-        raise PreflightError(f"Smoke output parent is not writable: {output_dir.parent}")
+        raise PreflightError(
+            f"Smoke output parent is not writable: {output_dir.parent}"
+        )
     if output_dir.exists() and any(output_dir.iterdir()):
         raise PreflightError(f"Smoke output dir is not empty: {output_dir}")
     if not runtime.codex_bin_dir.is_dir():

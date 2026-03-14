@@ -51,9 +51,7 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             )
         )
         artifact_index = json.loads(
-            (run_root / "pipeline" / "artifact_index.json").read_text(
-                encoding="utf-8"
-            )
+            (run_root / "pipeline" / "artifact_index.json").read_text(encoding="utf-8")
         )
         eitri_report = json.loads(
             (
@@ -102,12 +100,7 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         )
         self.assertTrue(
             (
-                run_root
-                / "services"
-                / "kvasir"
-                / "run"
-                / "outputs"
-                / "test_port.json"
+                run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"
             ).is_file()
         )
         self.assertEqual(

@@ -262,7 +262,9 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
 
         summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
-        self.assertEqual(summary["services"]["andvari"]["reason"], "stage-provider-bin-failed")
+        self.assertEqual(
+            summary["services"]["andvari"]["reason"], "stage-provider-bin-failed"
+        )
         self.assertIn(
             "destination is inside the source tree",
             summary["services"]["andvari"]["detail"],
@@ -285,7 +287,9 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
 
         original_chmod = Path.chmod
 
-        def guarded_chmod(path: Path, mode: int, *, follow_symlinks: bool = True) -> None:
+        def guarded_chmod(
+            path: Path, mode: int, *, follow_symlinks: bool = True
+        ) -> None:
             if path == output_dir.parent:
                 raise PermissionError("simulated /private/tmp chmod denial")
             original_chmod(path, mode, follow_symlinks=follow_symlinks)
