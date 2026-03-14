@@ -1,18 +1,18 @@
-# Copy/edit this file for live Heimdall runs.
-# Replace the placeholder repo, commit SHA, and GHCR digests before running.
+# VPS-oriented Heimdall manifest.
+# Update run_id before each fresh `heimdall.cli run`.
 
 version: 1
-run_id: 20260314T082314Z__mac
+run_id: 20260313T000000Z__vps
 
 source:
-  repo_url: https://github.com/auth0/java-jwt.git
-  commit_sha: e434ed95fb4ec2e510a3c107ad38e3bd1168816e
+  repo_url: https://github.com/seidr-edu/Eitri.git
+  commit_sha: 14be0f5d3f464b3eb759fe4898b51523fb14e78e
 
 images:
   brokk: ghcr.io/seidr-edu/brokk:v1.0.0
   eitri: ghcr.io/seidr-edu/eitri:v1.9.0
-  andvari: ghcr.io/seidr-edu/andvari:v1.0.2
-  kvasir: ghcr.io/seidr-edu/kvasir:v1.0.2
+  andvari: ghcr.io/seidr-edu/andvari:v1.0.1
+  kvasir: ghcr.io/seidr-edu/kvasir:v1.0.1
   lidskjalv: ghcr.io/seidr-edu/lidskjalv:v1.1.1
 
 eitri:
@@ -38,8 +38,8 @@ lidskjalv:
   sonar_wait_timeout_sec: 300
   sonar_wait_poll_sec: 5
   original:
-    project_key: heimdall_mac_java-jwt_original
-    project_name: Heimdall mac java-jwt original
+    project_key: heimdall_vps_original
+    project_name: Heimdall VPS original
   generated:
-    project_key: heimdall_mac_java-jwt_generated
-    project_name: Heimdall mac java-jwt generated
+    project_key: heimdall_vps_generated
+    project_name: Heimdall VPS generated

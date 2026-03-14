@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 from typing import Any
 
@@ -71,11 +72,16 @@ def _handle_inspect(image_ref: str) -> int:
 def _handle_run(args: list[str]) -> int:
     env_vars: dict[str, str] = {}
     mounts: list[dict[str, Any]] = []
+    entrypoint: str | None = None
     idx = 0
     while idx < len(args):
         token = args[idx]
         if token == "--rm":
             idx += 1
+            continue
+        if token == "--entrypoint":
+            entrypoint = args[idx + 1]
+            idx += 2
             continue
         if token == "-e":
             key, value = args[idx + 1].split("=", 1)
@@ -94,17 +100,28 @@ def _handle_run(args: list[str]) -> int:
     run_args = args[idx + 1 :]
 
     container = _ContainerMounts(mounts)
-    manifest = _load_manifest(container, env_vars)
-    step = _infer_step(image_ref, manifest)
-    mode = os.environ.get(f"FAKE_DOCKER_{step.upper().replace('-', '_')}_MODE", "pass")
-    if step.startswith("lidskjalv-"):
-        mode = os.environ.get(f"FAKE_DOCKER_{step.upper().replace('-', '_')}_MODE", mode)
+    if "HEIMDALL_SMOKE_SERVICE" in env_vars:
+        step = f"smoke-{env_vars['HEIMDALL_SMOKE_SERVICE']}"
+        mode = os.environ.get(
+            f"FAKE_DOCKER_SMOKE_{env_vars['HEIMDALL_SMOKE_SERVICE'].upper()}_MODE",
+            "pass",
+        )
+        manifest: dict[str, Any] = {}
+    else:
+        manifest = _load_manifest(container, env_vars)
+        step = _infer_step(image_ref, manifest)
+        mode = os.environ.get(f"FAKE_DOCKER_{step.upper().replace('-', '_')}_MODE", "pass")
+        if step.startswith("lidskjalv-"):
+            mode = os.environ.get(
+                f"FAKE_DOCKER_{step.upper().replace('-', '_')}_MODE", mode
+            )
 
     run_entry: dict[str, Any] = {
         "kind": "run",
         "image": image_ref,
         "step": step,
         "mode": mode,
+        "entrypoint": entrypoint,
         "env": env_vars,
         "mounts": mounts,
         "args": run_args,
@@ -119,6 +136,8 @@ def _handle_run(args: list[str]) -> int:
 
     if mode == "missing-report":
         return 0
+    if step.startswith("smoke-"):
+        return _run_provider_smoke(container, env_vars, mode)
     if step == "brokk":
         _run_brokk(container, manifest, mode)
     elif step == "eitri":
@@ -189,6 +208,58 @@ def _infer_step(image_ref: str, manifest: dict[str, Any]) -> str:
         label = str(manifest.get("scan_label", "original"))
         return f"lidskjalv-{label}"
     return "unknown"
+
+
+def _run_provider_smoke(
+    container: _ContainerMounts, env_vars: dict[str, str], mode: str
+) -> int:
+    runtime_dir = container.resolve("/run/provider-state/codex-home")
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    workspace_dir = container.resolve("/run/workspace")
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    provider_seed = container.resolve("/opt/provider-seed/codex-home")
+    smoke_input = container.resolve("/input/smoke.txt")
+    if provider_seed.exists():
+        shutil.copytree(provider_seed, runtime_dir, dirs_exist_ok=True)
+
+    service = env_vars.get("HEIMDALL_SMOKE_SERVICE", "unknown")
+    print(f"[smoke] service={service}")
+    print("/opt/provider/bin/codex")
+
+    if mode == "version-fail":
+        print("/opt/provider/bin/codex: cannot execute binary file: Exec format error")
+        return 1
+    if mode == "login-fail":
+        print("codex-cli 0.113.0")
+        print("Not logged in")
+        return 1
+    if mode == "exec-fail":
+        print("codex-cli 0.113.0")
+        print("Logged in using ChatGPT")
+        print("sandbox denied access to /input/smoke.txt")
+        print(
+            "[smoke][error] command failed: codex exec --skip-git-repo-check "
+            "--dangerously-bypass-approvals-and-sandbox --cd /run/workspace "
+            "--add-dir /input --json --output-last-message "
+            "/run/workspace/last-message.txt - (exit 1)"
+        )
+        return 1
+    if mode == "exec-no-artifact":
+        print("codex-cli 0.113.0")
+        print("Logged in using ChatGPT")
+        print("SMOKE_OK")
+        print("[smoke][error] codex exec did not create /run/workspace/smoke-result.txt")
+        return 1
+
+    print("codex-cli 0.113.0")
+    print("Logged in using ChatGPT")
+    if smoke_input.exists():
+        shutil.copy2(smoke_input, workspace_dir / "smoke-result.txt")
+    (workspace_dir / "last-message.txt").write_text("SMOKE_OK\n", encoding="utf-8")
+    print("SMOKE_OK")
+    print("[smoke] codex exec workspace probe passed")
+    print("[smoke] provider smoke passed")
+    return 0
 
 
 def _run_brokk(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:

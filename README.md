@@ -26,16 +26,150 @@ canonical service reports rather than container exit codes.
 python3 -m heimdall run /abs/path/pipeline.yaml \
   --runs-root /abs/path/runs \
   --codex-bin-dir /abs/path/provider/bin \
+  --codex-host-bin-dir /abs/path/host/provider/bin \
   --codex-home-dir /abs/path/provider/home \
   --verbose
 
 python3 -m heimdall resume /abs/path/runs/<run_id> \
   --codex-bin-dir /abs/path/provider/bin \
+  --codex-host-bin-dir /abs/path/host/provider/bin \
   --codex-home-dir /abs/path/provider/home
 ```
 
 `python3 -m heimdall.cli ...` works as well. After installation the console
-entrypoint is `orchestrator`.
+entrypoint is `orchestrator`. If `--codex-host-bin-dir` is omitted, Heimdall
+uses `--codex-bin-dir` for both host preflight and container mounts.
+
+## Provider smoke
+
+When you want to check whether `Andvari` and `Kvasir` can actually use your
+host Codex install from inside their Linux service containers, run the provider
+smoke command:
+
+```bash
+python3 -m heimdall.cli smoke-provider /abs/path/pipeline.yaml \
+  --output-dir /abs/path/provider-smoke \
+  --codex-bin-dir /abs/path/provider/bin \
+  --codex-host-bin-dir /abs/path/host/provider/bin \
+  --codex-home-dir /abs/path/provider/home \
+  --verbose
+```
+
+This is especially useful on macOS, where host-side `codex login status` can
+work while the Linux service containers still fail because:
+
+- the mounted `codex` binary is a Mach-O executable instead of a Linux binary
+- the staged auth seed copies into `/run/provider-state/codex-home`, but
+  `codex login status` still fails inside the container
+
+If you provision a Linux-only container bin on macOS, keep using your native
+Mac Codex binary for host preflight via `--codex-host-bin-dir` and point
+`--codex-bin-dir` at the Linux bundle that the containers should execute.
+
+One workable macOS flow is:
+
+```bash
+mkdir -p /tmp/heimdall-codex-mac-bin
+ln -sf "$(python3 -c 'import os, shutil; print(os.path.realpath(shutil.which("codex")))' )" \
+  /tmp/heimdall-codex-mac-bin/codex
+
+rm -rf /tmp/heimdall-codex-linux-bin
+mkdir -p /tmp/heimdall-codex-linux-bin
+docker run --rm \
+  -v /tmp/heimdall-codex-linux-bin:/out \
+  node:20-bookworm-slim \
+  bash -lc '
+    set -euo pipefail
+    npm install -g @openai/codex >/tmp/npm-install.log 2>&1
+    mkdir -p /out/lib/node_modules/@openai
+    cp /usr/local/bin/node /out/node
+    cp -R /usr/local/lib/node_modules/@openai/codex /out/lib/node_modules/@openai/codex
+    cat > /out/codex <<'"'"'EOF'"'"'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$DIR/node" "$DIR/lib/node_modules/@openai/codex/bin/codex.js" "$@"
+EOF
+    chmod 755 /out/codex /out/node
+  '
+
+python3 -m heimdall.cli smoke-provider /abs/path/pipeline.yaml \
+  --output-dir /tmp/heimdall-provider-smoke \
+  --codex-bin-dir /tmp/heimdall-codex-linux-bin \
+  --codex-host-bin-dir /tmp/heimdall-codex-mac-bin \
+  --codex-home-dir "$HOME/.codex" \
+  --verbose
+```
+
+If the smoke passes, use the same `--codex-bin-dir`, `--codex-host-bin-dir`,
+and `--codex-home-dir` values for real `run` and `resume` commands.
+
+The smoke command stages the provider bin/home the same way Heimdall does for a
+real run, then probes `Andvari` and `Kvasir` separately. The probe now runs a
+small `codex exec` task with the same container-safe flags used by the service
+adapters, verifies it can read a mounted `/input` fixture, and verifies it can
+write a result file into the mounted `/run/workspace`. It writes:
+
+- `summary.json`
+- `summary.md`
+- `logs/andvari.log`
+- `logs/kvasir.log`
+
+The summary includes the host Codex binary format and a classified failure
+reason such as `codex-binary-incompatible-with-container`,
+`codex-auth-unusable-in-container`, or
+`codex-exec-workspace-access-failed`.
+
+## Local run
+
+Heimdall reads Sonar credentials from the shell environment, not from the
+public pipeline manifest. Keep them in a local `.env` file that is not
+committed:
+
+```bash
+cd /abs/path/Heimdall
+
+cat > .env <<'EOF'
+SONAR_HOST_URL=https://sonarcloud.io
+SONAR_TOKEN=replace-me
+SONAR_ORGANIZATION=replace-me
+EOF
+
+chmod 600 .env
+grep -qxF '.env' .git/info/exclude || printf '\n.env\n' >> .git/info/exclude
+```
+
+Linux:
+
+```bash
+cd /abs/path/Heimdall
+set -a
+. ./.env
+set +a
+export PYTHONPATH="$PWD/src"
+
+python3 -m heimdall.cli run /abs/path/pipeline.yaml \
+  --runs-root /abs/path/runs \
+  --codex-bin-dir /abs/path/provider/bin \
+  --codex-home-dir /abs/path/provider/home \
+  --verbose
+```
+
+macOS:
+
+```bash
+cd /abs/path/Heimdall
+set -a
+. ./.env
+set +a
+export PYTHONPATH="$PWD/src"
+
+python3 -m heimdall.cli run /abs/path/pipeline.yaml \
+  --runs-root /abs/path/runs \
+  --codex-bin-dir /abs/path/linux/provider/bin \
+  --codex-host-bin-dir /abs/path/mac/provider/bin \
+  --codex-home-dir /abs/path/provider/home \
+  --verbose
+```
 
 ## Public manifest
 
@@ -49,6 +183,7 @@ Key rules:
 - `images.*` accept any Docker image ref string, but production manifests should
   use immutable digests
 - no public `provider.*` host-path block is allowed
+- do not put secrets such as `SONAR_TOKEN` in the manifest
 - unknown top-level keys are rejected
 - `eitri.writers` is passed through directly to Eitri, so nested keys must match
   Eitri's real PlantUML config schema such as `diagramName` or `hidePrivate`

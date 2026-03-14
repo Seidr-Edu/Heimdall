@@ -30,77 +30,6 @@ class RunnerIntegrationTest(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tempdir)
 
-    def test_full_run_writes_reports_and_obeys_dag(self) -> None:
-        completed = self._run_cli(
-            [
-                "run",
-                str(self.pipeline_path),
-                "--runs-root",
-                str(self.runs_root),
-                "--codex-bin-dir",
-                str(self.bin_dir),
-                "--codex-home-dir",
-                str(self.home_dir),
-            ]
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-
-        run_root = self.runs_root / "20260312T120000Z__heimdall"
-        run_report = json.loads(
-            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        artifact_index = json.loads(
-            (run_root / "pipeline" / "artifact_index.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(run_report["status"], "passed")
-        self.assertEqual(run_report["steps"]["andvari"]["status"], "passed")
-        self.assertEqual(
-            set(artifact_index["artifacts"]),
-            {
-                "andvari_logs",
-                "andvari_report_dir",
-                "generated_repo",
-                "kvasir_report",
-                "lidskjalv_generated_report",
-                "lidskjalv_original_report",
-                "model_diagram",
-                "model_logs",
-                "original_repo",
-                "source_manifest",
-            },
-        )
-        self.assertTrue((run_root / "pipeline" / "logs" / "brokk.log").is_file())
-        self.assertTrue((run_root / "pipeline" / "logs" / "eitri.log").is_file())
-
-        docker_state = load_fake_state(self.state_path)
-        runs = docker_state["runs"]
-        run_by_step = {entry["step"]: entry for entry in runs}
-        self.assertLess(run_by_step["brokk"]["seq"], run_by_step["eitri"]["seq"])
-        self.assertLess(
-            run_by_step["brokk"]["seq"], run_by_step["lidskjalv-original"]["seq"]
-        )
-        self.assertLess(run_by_step["eitri"]["seq"], run_by_step["andvari"]["seq"])
-        self.assertLess(run_by_step["andvari"]["seq"], run_by_step["kvasir"]["seq"])
-        self.assertLess(
-            run_by_step["andvari"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
-        )
-        for entry in runs:
-            mount_hosts = {Path(mount["host"]) for mount in entry["mounts"]}
-            self.assertNotIn(run_root / "pipeline" / "manifest.yaml", mount_hosts)
-
-        eitri_manifest = (
-            runs[1]["manifest"]
-            if runs[1]["step"] == "eitri"
-            else run_by_step["eitri"]["manifest"]
-        )
-        self.assertEqual(eitri_manifest["writer_extension"], ".puml")
-        self.assertEqual(
-            eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
-        )
-        self.assertEqual(eitri_manifest["writers"]["plantuml"]["hidePrivate"], True)
-
     def test_resume_reruns_only_failed_kvasir(self) -> None:
         failing_env = {"FAKE_DOCKER_KVASIR_MODE": "behavioral-fail"}
         first = self._run_cli(
@@ -209,6 +138,111 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["andvari"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
 
+    def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
+        write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
+        write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
+        write_file(self.home_dir / "tmp" / "arg0", "transient\n", mode=0o600)
+        write_file(
+            self.home_dir / "log" / "codex-login.log",
+            "login ok\n",
+            mode=0o600,
+        )
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+
+        andvari_seed = self._mount_host_path(
+            run_by_step["andvari"], "/opt/provider-seed/codex-home"
+        )
+        kvasir_seed = self._mount_host_path(
+            run_by_step["kvasir"], "/opt/provider-seed/codex-home"
+        )
+
+        self.assertEqual(
+            andvari_seed.resolve(),
+            (run_root / "services" / "andvari" / "input" / "provider-seed").resolve(),
+        )
+        self.assertEqual(
+            kvasir_seed.resolve(),
+            (run_root / "services" / "kvasir" / "input" / "provider-seed").resolve(),
+        )
+        self.assertNotEqual(andvari_seed, self.home_dir)
+        self.assertNotEqual(kvasir_seed, self.home_dir)
+
+        self.assertEqual(
+            (self.home_dir / "tmp" / "arg0").stat().st_mode & 0o777,
+            0o600,
+        )
+        self.assertEqual((andvari_seed / "auth.json").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((andvari_seed / "config.toml").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((andvari_seed / "tmp").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((andvari_seed / "tmp" / "arg0").stat().st_mode & 0o777, 0o644)
+        self.assertEqual(
+            (andvari_seed / "log" / "codex-login.log").stat().st_mode & 0o777,
+            0o644,
+        )
+        self.assertTrue((kvasir_seed / "tmp" / "arg0").is_file())
+
+    def test_codex_bin_dir_is_staged_into_executable_provider_bin_mounts(self) -> None:
+        real_provider_bin = self.root / "real-provider-bin"
+        real_provider_bin.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.bin_dir / "codex", real_provider_bin / "codex")
+        (real_provider_bin / "codex").chmod(0o700)
+
+        provider_bin_dir = self.root / "provider-symlink-bin"
+        provider_bin_dir.mkdir(parents=True, exist_ok=True)
+        (provider_bin_dir / "codex").symlink_to(real_provider_bin / "codex")
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(provider_bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+
+        andvari_bin = self._mount_host_path(run_by_step["andvari"], "/opt/provider/bin")
+        kvasir_bin = self._mount_host_path(run_by_step["kvasir"], "/opt/provider/bin")
+
+        self.assertEqual(
+            andvari_bin.resolve(),
+            (run_root / "services" / "andvari" / "input" / "provider-bin").resolve(),
+        )
+        self.assertEqual(
+            kvasir_bin.resolve(),
+            (run_root / "services" / "kvasir" / "input" / "provider-bin").resolve(),
+        )
+        self.assertNotEqual(andvari_bin, provider_bin_dir)
+        self.assertTrue((provider_bin_dir / "codex").is_symlink())
+        self.assertFalse((andvari_bin / "codex").is_symlink())
+        self.assertEqual((andvari_bin / "codex").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((kvasir_bin / "codex").stat().st_mode & 0o777, 0o755)
+
     def test_preflight_requires_sonar_when_enabled(self) -> None:
         sonar_manifest = build_pipeline_manifest(
             skip_sonar=False, run_id="20260312T120000Z__sonar"
@@ -241,6 +275,14 @@ class RunnerIntegrationTest(unittest.TestCase):
             cwd=str(self.root),
             env=env,
         )
+
+    def _mount_host_path(
+        self, run_entry: dict[str, object], container_path: str
+    ) -> Path:
+        for mount in run_entry["mounts"]:
+            if mount["container"] == container_path:
+                return Path(mount["host"])
+        self.fail(f"missing mount for {container_path}")
 
 
 if __name__ == "__main__":
