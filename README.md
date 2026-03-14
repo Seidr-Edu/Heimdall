@@ -48,8 +48,8 @@ pipeline outputs remain under `runs/<run_id>/`.
 
 Worker config example:
 
-- [examples/worker.example.yaml](/Users/oleremidahl/Documents/Master/Heimdall/examples/worker.example.yaml)
-- [examples/heimdall-worker.service](/Users/oleremidahl/Documents/Master/Heimdall/examples/heimdall-worker.service)
+- [examples/worker.example.yaml](examples/worker.example.yaml)
+- [examples/heimdall-worker.service](examples/heimdall-worker.service)
 
 Submit one job from your local machine over SSH:
 
