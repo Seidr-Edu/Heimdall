@@ -5,6 +5,7 @@ import platform
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TypedDict
 
 from heimdall.images import DockerError, resolve_image, run_container
 from heimdall.models import PipelineConfig, RuntimeConfig
@@ -20,6 +21,42 @@ from heimdall.utils import (
 SMOKE_SERVICES = ("andvari", "kvasir")
 SMOKE_INPUT_FILENAME = "smoke.txt"
 SMOKE_INPUT_CONTENT = "heimdall-provider-smoke\n"
+
+
+class HostInfo(TypedDict):
+    platform: str
+    python_version: str
+    codex_host_bin_dir: str
+    codex_container_bin_dir: str
+    codex_home_dir: str
+    host_codex_executable: str
+    host_codex_binary_format: str
+    container_codex_executable: str
+    container_codex_binary_format: str
+    compatibility_hint: str | None
+
+
+class ServiceProbeResult(TypedDict):
+    status: str
+    reason: str | None
+    detail: str | None
+    hint: str | None
+    image_ref: str
+    resolved_image_id: str | None
+    log_path: str
+    service_root: str
+    provider_bin_dir: str
+    provider_seed_dir: str
+    probe_input_dir: str
+    runtime_codex_home: str
+
+
+class SmokeSummary(TypedDict):
+    status: str
+    started_at: str
+    finished_at: str
+    host: HostInfo
+    services: dict[str, ServiceProbeResult]
 
 
 def default_provider_smoke_output_dir(base_dir: Path | None = None) -> Path:
@@ -47,7 +84,7 @@ def run_provider_smoke(
 
     started_at = timestamp_utc()
     host_info = _host_info(runtime)
-    results: dict[str, dict[str, object]] = {}
+    results: dict[str, ServiceProbeResult] = {}
 
     for service in services:
         results[service] = _run_service_probe(
@@ -64,7 +101,7 @@ def run_provider_smoke(
         if all(result["status"] == "passed" for result in results.values())
         else "failed"
     )
-    summary = {
+    summary: SmokeSummary = {
         "status": overall_status,
         "started_at": started_at,
         "finished_at": finished_at,
@@ -76,12 +113,12 @@ def run_provider_smoke(
     return output_dir
 
 
-def _host_info(runtime: RuntimeConfig) -> dict[str, object]:
+def _host_info(runtime: RuntimeConfig) -> HostInfo:
     host_codex_executable = (runtime.codex_host_bin_dir / "codex").resolve()
     host_binary_format = _detect_binary_format(host_codex_executable)
     container_codex_executable = (runtime.codex_bin_dir / "codex").resolve()
     container_binary_format = _detect_binary_format(container_codex_executable)
-    info = {
+    info: HostInfo = {
         "platform": platform.platform(),
         "python_version": sys.version.split()[0],
         "codex_host_bin_dir": str(runtime.codex_host_bin_dir),
@@ -91,6 +128,7 @@ def _host_info(runtime: RuntimeConfig) -> dict[str, object]:
         "host_codex_binary_format": host_binary_format,
         "container_codex_executable": str(container_codex_executable),
         "container_codex_binary_format": container_binary_format,
+        "compatibility_hint": None,
     }
     if container_binary_format.startswith("mach-o"):
         info["compatibility_hint"] = (
@@ -115,7 +153,7 @@ def _run_service_probe(
     runtime: RuntimeConfig,
     services_dir: Path,
     logs_dir: Path,
-) -> dict[str, object]:
+) -> ServiceProbeResult:
     service_root = services_dir / service
     run_dir = service_root / "run"
     provider_bin_dir = service_root / "input" / "provider-bin"
@@ -128,7 +166,7 @@ def _run_service_probe(
     ensure_directory(run_dir, 0o777)
     _write_probe_input(probe_input_dir)
 
-    base_result = {
+    base_result: ServiceProbeResult = {
         "status": "failed",
         "reason": None,
         "detail": None,
@@ -500,7 +538,7 @@ def _detect_binary_format(path: Path) -> str:
     return "unknown"
 
 
-def _render_summary(summary: dict[str, object]) -> str:
+def _render_summary(summary: SmokeSummary) -> str:
     host = summary["host"]
     lines = [
         "# Provider Smoke",
