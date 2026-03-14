@@ -256,9 +256,7 @@ def _status_command(args: argparse.Namespace) -> int:
             raise RuntimeError(
                 "--remote-worker-config is required when --remote is used"
             )
-        completed = status_remote(
-            args.remote, args.remote_worker_config, args.job_id
-        )
+        completed = status_remote(args.remote, args.remote_worker_config, args.job_id)
         _emit_completed_process(completed)
         return completed.returncode
 

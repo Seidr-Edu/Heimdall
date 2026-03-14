@@ -155,7 +155,9 @@ def run_pipeline_manifest_path(
     return run_root, config
 
 
-def resume_run_root(run_root: Path, runtime: RuntimeConfig) -> tuple[Path, PipelineConfig]:
+def resume_run_root(
+    run_root: Path, runtime: RuntimeConfig
+) -> tuple[Path, PipelineConfig]:
     run_root = run_root.resolve()
     manifest_path = run_root / "pipeline" / "manifest.yaml"
     if not manifest_path.is_file():

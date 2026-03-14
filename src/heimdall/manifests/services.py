@@ -17,7 +17,9 @@ if TYPE_CHECKING:
     from heimdall.adapters import AdapterContext
 
 
-def build_step_manifest_payload(step: str, context: AdapterContext) -> dict[str, object]:
+def build_step_manifest_payload(
+    step: str, context: AdapterContext
+) -> dict[str, object]:
     if step == STEP_BROKK:
         return {
             "version": 1,
@@ -82,8 +84,7 @@ def build_step_manifest_payload(step: str, context: AdapterContext) -> dict[str,
         "run_id": context.config.run_id,
         "scan_label": scan_label,
         "project_key": target_config.project_key or defaults[f"{scan_label}_key"],
-        "project_name": target_config.project_name
-        or defaults[f"{scan_label}_name"],
+        "project_name": target_config.project_name or defaults[f"{scan_label}_name"],
         "skip_sonar": context.config.lidskjalv.skip_sonar,
         "sonar_wait_timeout_sec": context.config.lidskjalv.sonar_wait_timeout_sec,
         "sonar_wait_poll_sec": context.config.lidskjalv.sonar_wait_poll_sec,

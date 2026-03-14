@@ -118,13 +118,17 @@ def _load_yaml_mapping(path: Path, label: str) -> dict[str, object]:
     try:
         raw_text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ManifestValidationError(f"Failed to read {label}: {path} ({exc})") from exc
+        raise ManifestValidationError(
+            f"Failed to read {label}: {path} ({exc})"
+        ) from exc
     try:
         loaded = loads(raw_text)
     except YamlError as exc:
         raise ManifestValidationError(f"Invalid {label} YAML: {exc}") from exc
     if not isinstance(loaded, Mapping):
-        raise ManifestValidationError(f"{label.capitalize()} root must be a mapping/object")
+        raise ManifestValidationError(
+            f"{label.capitalize()} root must be a mapping/object"
+        )
     return dict(loaded)
 
 
@@ -152,9 +156,7 @@ def _parse_worker_config_mapping(
     )
     version = data.get("version")
     if version is not None and version != 1:
-        raise ManifestValidationError(
-            f"Unsupported worker config version: {version!r}"
-        )
+        raise ManifestValidationError(f"Unsupported worker config version: {version!r}")
     pull_policy_raw = pipeline_mod._optional_str(data, "pull_policy", "root")
     pull_policy = pull_policy_raw or "if-missing"
     if pull_policy not in {"if-missing", "always", "never"}:
@@ -182,7 +184,9 @@ def _parse_worker_config_mapping(
         images=_parse_images_config(
             pipeline_mod._require_mapping(data, "images", "root"), "images"
         ),
-        eitri=_parse_eitri_config(pipeline_mod._optional_mapping(data, "eitri", "root")),
+        eitri=_parse_eitri_config(
+            pipeline_mod._optional_mapping(data, "eitri", "root")
+        ),
         andvari=_parse_andvari_config(
             pipeline_mod._optional_mapping(data, "andvari", "root")
         ),
@@ -211,9 +215,7 @@ def _parse_queue_request_mapping(data: dict[str, object]) -> QueueRequest:
     )
     version = data.get("version")
     if version is not None and version != 1:
-        raise ManifestValidationError(
-            f"Unsupported queue request version: {version!r}"
-        )
+        raise ManifestValidationError(f"Unsupported queue request version: {version!r}")
     repo_url = pipeline_mod._require_str(data, "repo_url", "root")
     commit_sha = pipeline_mod._require_str(data, "commit_sha", "root")
     pipeline_mod._validate_repo_url(repo_url)
@@ -269,7 +271,9 @@ def _parse_eitri_config(data: dict[str, object]) -> EitriConfig:
         raise ManifestValidationError("eitri.writers must be a mapping/object")
     return EitriConfig(
         source_relpaths=tuple(
-            pipeline_mod._string_list(data.get("source_relpaths"), "eitri.source_relpaths")
+            pipeline_mod._string_list(
+                data.get("source_relpaths"), "eitri.source_relpaths"
+            )
             or ["."]
         ),
         parser_extension=pipeline_mod._optional_str(data, "parser_extension", "eitri"),

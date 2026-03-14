@@ -44,7 +44,9 @@ def resolve_worker_config_path(path: Path | None) -> Path:
     return Path("worker.yaml").resolve()
 
 
-def enqueue_request(worker_config: WorkerConfig, request: QueueRequest) -> dict[str, object]:
+def enqueue_request(
+    worker_config: WorkerConfig, request: QueueRequest
+) -> dict[str, object]:
     _ensure_queue_layout(worker_config.queue_root)
     job_id = _allocate_job_id(worker_config, request)
     job_dir = _job_dir(worker_config, job_id)
@@ -110,7 +112,9 @@ def worker_loop(
             time.sleep(poll_interval_sec)
 
 
-def load_job_status_document(worker_config: WorkerConfig, job_id: str) -> dict[str, object]:
+def load_job_status_document(
+    worker_config: WorkerConfig, job_id: str
+) -> dict[str, object]:
     job_path = _job_path(worker_config, job_id)
     if not job_path.is_file():
         raise RuntimeError(f"Unknown job ID: {job_id}")
@@ -128,7 +132,9 @@ def load_job_status_document(worker_config: WorkerConfig, job_id: str) -> dict[s
         document["report_path"] = str(report_path)
     document["request_path"] = str(_request_path(worker_config, job_id))
     document["job_path"] = str(job_path)
-    document["pipeline_manifest_path"] = str(_pipeline_manifest_path(worker_config, job_id))
+    document["pipeline_manifest_path"] = str(
+        _pipeline_manifest_path(worker_config, job_id)
+    )
     return document
 
 
@@ -375,7 +381,9 @@ def _worker_lock(lock_path: Path) -> Iterator[None]:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             acquired = True
         except BlockingIOError as exc:
-            raise RuntimeError(f"Another worker is already holding {lock_path}") from exc
+            raise RuntimeError(
+                f"Another worker is already holding {lock_path}"
+            ) from exc
         yield
     finally:
         if acquired:
@@ -387,13 +395,17 @@ def _load_yaml_mapping(path: Path, label: str) -> dict[str, object]:
     try:
         raw_text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ManifestValidationError(f"Failed to read {label}: {path} ({exc})") from exc
+        raise ManifestValidationError(
+            f"Failed to read {label}: {path} ({exc})"
+        ) from exc
     try:
         loaded = loads(raw_text)
     except YamlError as exc:
         raise ManifestValidationError(f"Invalid {label} YAML: {exc}") from exc
     if not isinstance(loaded, Mapping):
-        raise ManifestValidationError(f"{label.capitalize()} root must be a mapping/object")
+        raise ManifestValidationError(
+            f"{label.capitalize()} root must be a mapping/object"
+        )
     return dict(loaded)
 
 

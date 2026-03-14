@@ -93,14 +93,16 @@ class QueueIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
-        job_document = self._load_yaml_file(self.queue_root / "jobs" / job_id / "job.yaml")
+        job_document = self._load_yaml_file(
+            self.queue_root / "jobs" / job_id / "job.yaml"
+        )
         self.assertEqual(job_document["status"], "passed")
         self.assertTrue((self.queue_root / "finished" / job_id).is_file())
 
         report = json.loads(
-            (self.runs_root / job_id / "pipeline" / "outputs" / "run_report.json").read_text(
-                encoding="utf-8"
-            )
+            (
+                self.runs_root / job_id / "pipeline" / "outputs" / "run_report.json"
+            ).read_text(encoding="utf-8")
         )
         self.assertEqual(report["status"], "passed")
 
@@ -126,7 +128,9 @@ class QueueIntegrationTest(unittest.TestCase):
         )
         write_file(job_dir / "pipeline.yaml", manifest_text)
 
-        os.replace(self.queue_root / "pending" / job_id, self.queue_root / "running" / job_id)
+        os.replace(
+            self.queue_root / "pending" / job_id, self.queue_root / "running" / job_id
+        )
         job_document = self._load_yaml_file(job_dir / "job.yaml")
         job_document["status"] = "running"
         job_document["started_at"] = "2026-03-12T12:00:00Z"
@@ -144,7 +148,9 @@ class QueueIntegrationTest(unittest.TestCase):
 
         final_document = self._load_yaml_file(job_dir / "job.yaml")
         self.assertEqual(final_document["status"], "passed")
-        self.assertTrue((self.runs_root / job_id / "pipeline" / "manifest.yaml").is_file())
+        self.assertTrue(
+            (self.runs_root / job_id / "pipeline" / "manifest.yaml").is_file()
+        )
 
     def test_status_reports_pending_and_completed_jobs(self) -> None:
         job_id = self._enqueue_job()
@@ -252,7 +258,9 @@ class QueueIntegrationTest(unittest.TestCase):
     def test_worker_lock_failure_returns_error(self) -> None:
         stderr = io.StringIO()
         with (
-            mock.patch("heimdall.queueing.worker.fcntl.flock", side_effect=BlockingIOError()),
+            mock.patch(
+                "heimdall.queueing.worker.fcntl.flock", side_effect=BlockingIOError()
+            ),
             redirect_stderr(stderr),
         ):
             return_code = main(
