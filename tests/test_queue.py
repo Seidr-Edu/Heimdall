@@ -64,8 +64,12 @@ class QueueIntegrationTest(unittest.TestCase):
         job_id = self._require_job_id(document)
         self.assertEqual(document["status"], "pending")
         self.assertTrue((self.queue_root / "pending" / job_id).is_file())
-        self.assertTrue((self.queue_root / "jobs" / job_id / "request.yaml").is_file())
+        request_document = self._load_yaml_file(
+            self.queue_root / "jobs" / job_id / "request.yaml"
+        )
+        self.assertEqual(request_document["version"], 1)
         self.assertTrue((self.queue_root / "jobs" / job_id / "job.yaml").is_file())
+        self.assertFalse((self.queue_root / "jobs" / job_id / "pipeline.yaml").exists())
 
     def test_enqueue_rejects_invalid_request(self) -> None:
         completed = self._run_cli(
@@ -79,6 +83,19 @@ class QueueIntegrationTest(unittest.TestCase):
         )
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("commit_sha", completed.stderr)
+
+    def test_enqueue_invalid_repo_url_reports_queue_field_path(self) -> None:
+        completed = self._run_cli(
+            [
+                "enqueue",
+                "--worker-config",
+                str(self.worker_config_path),
+                "--stdin",
+            ],
+            input_text=build_queue_request(repo_url="http://github.com/example/demo"),
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("root.repo_url", completed.stderr)
 
     def test_worker_processes_pending_job_and_emits_structured_logs(self) -> None:
         job_id = self._enqueue_job()
@@ -151,6 +168,62 @@ class QueueIntegrationTest(unittest.TestCase):
         self.assertTrue(
             (self.runs_root / job_id / "pipeline" / "manifest.yaml").is_file()
         )
+
+    def test_worker_rebuilds_missing_pipeline_manifest_for_running_job(self) -> None:
+        job_id = self._enqueue_job()
+        job_dir = self.queue_root / "jobs" / job_id
+
+        os.replace(
+            self.queue_root / "pending" / job_id, self.queue_root / "running" / job_id
+        )
+        job_document = self._load_yaml_file(job_dir / "job.yaml")
+        job_document["status"] = "running"
+        job_document["started_at"] = "2026-03-12T12:00:00Z"
+        write_file(job_dir / "job.yaml", dumps(job_document))
+
+        completed = self._run_cli(
+            [
+                "worker",
+                "--worker-config",
+                str(self.worker_config_path),
+                "--once",
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        final_document = self._load_yaml_file(job_dir / "job.yaml")
+        self.assertEqual(final_document["status"], "passed")
+        self.assertTrue((job_dir / "pipeline.yaml").is_file())
+        self.assertTrue(
+            (self.runs_root / job_id / "pipeline" / "manifest.yaml").is_file()
+        )
+
+    def test_worker_regenerates_invalid_queue_pipeline_manifest(self) -> None:
+        job_id = self._enqueue_job()
+        job_dir = self.queue_root / "jobs" / job_id
+        write_file(job_dir / "pipeline.yaml", "")
+
+        os.replace(
+            self.queue_root / "pending" / job_id, self.queue_root / "running" / job_id
+        )
+        job_document = self._load_yaml_file(job_dir / "job.yaml")
+        job_document["status"] = "running"
+        job_document["started_at"] = "2026-03-12T12:00:00Z"
+        write_file(job_dir / "job.yaml", dumps(job_document))
+
+        completed = self._run_cli(
+            [
+                "worker",
+                "--worker-config",
+                str(self.worker_config_path),
+                "--once",
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        final_document = self._load_yaml_file(job_dir / "job.yaml")
+        self.assertEqual(final_document["status"], "passed")
+        self.assertTrue((job_dir / "pipeline.yaml").is_file())
 
     def test_status_reports_pending_and_completed_jobs(self) -> None:
         job_id = self._enqueue_job()

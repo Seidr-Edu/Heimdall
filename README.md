@@ -98,7 +98,7 @@ python3 -m heimdall.cli status \
   20260314T120000Z__example_demo-repo__01234567
 ```
 
-The worker emits structured JSON log lines to stdout/stderr for operators, but
+The worker emits structured JSON log lines to stderr for operators, but
 job state and run outcomes should be read from `queue/jobs/<job_id>/job.yaml`
 and `runs/<run_id>/pipeline/outputs/run_report.json`, not from `journalctl`.
 

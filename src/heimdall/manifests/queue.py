@@ -47,6 +47,7 @@ def dump_queue_request(request: QueueRequest) -> str:
 
 def queue_request_to_document(request: QueueRequest) -> dict[str, object]:
     document: dict[str, object] = {
+        "version": request.version,
         "repo_url": request.repo_url,
         "commit_sha": request.commit_sha,
     }
@@ -216,9 +217,10 @@ def _parse_queue_request_mapping(data: dict[str, object]) -> QueueRequest:
     version = data.get("version")
     if version is not None and version != 1:
         raise ManifestValidationError(f"Unsupported queue request version: {version!r}")
+    parsed_version = 1
     repo_url = pipeline_mod._require_str(data, "repo_url", "root")
     commit_sha = pipeline_mod._require_str(data, "commit_sha", "root")
-    pipeline_mod._validate_repo_url(repo_url)
+    pipeline_mod._validate_repo_url(repo_url, field_path="root.repo_url")
     if not pipeline_mod._SHA_RE.fullmatch(commit_sha):
         raise ManifestValidationError(
             "root.commit_sha must be a full 40-character lowercase SHA"
@@ -238,6 +240,7 @@ def _parse_queue_request_mapping(data: dict[str, object]) -> QueueRequest:
         lidskjalv=_parse_lidskjalv_override(
             pipeline_mod._optional_mapping(data, "lidskjalv", "root"), "lidskjalv"
         ),
+        version=parsed_version,
     )
 
 

@@ -53,7 +53,6 @@ def enqueue_request(
     job_dir.mkdir(parents=False, exist_ok=False)
 
     write_text(_request_path(worker_config, job_id), dump_queue_request(request))
-    write_text(_pipeline_manifest_path(worker_config, job_id), "")
 
     submitted_at = timestamp_utc()
     run_dir = worker_config.runs_root / job_id
@@ -227,15 +226,8 @@ def _reconcile_running_job(worker_config: WorkerConfig, job_id: str) -> None:
     try:
         if manifest_path.is_file():
             resume_run_root(run_dir, runtime)
-        elif _pipeline_manifest_path(worker_config, job_id).is_file():
-            run_root, _config = run_pipeline_manifest_path(
-                _pipeline_manifest_path(worker_config, job_id),
-                runtime,
-            )
-            run_dir = run_root
         else:
-            _finalize_job_error(worker_config, job_id, "missing_pipeline_manifest")
-            return
+            run_dir = _run_from_queue_manifest(worker_config, job_id, runtime, job)
     except Exception as exc:
         _finalize_job_error(worker_config, job_id, str(exc))
         _emit_worker_log("job_failed", job_id=job_id, status="error", reason=str(exc))
@@ -418,6 +410,37 @@ def _runtime_from_worker_config(worker_config: WorkerConfig) -> RuntimeConfig:
         worker_config.pull_policy,
         worker_config.verbose,
     )
+
+
+def _run_from_queue_manifest(
+    worker_config: WorkerConfig,
+    job_id: str,
+    runtime: RuntimeConfig,
+    job: Mapping[str, object],
+) -> Path:
+    manifest_file = _pipeline_manifest_path(worker_config, job_id)
+    if manifest_file.is_file():
+        manifest_text = manifest_file.read_text(encoding="utf-8")
+        if manifest_text.strip():
+            try:
+                run_root, _config = run_pipeline_manifest_path(manifest_file, runtime)
+            except (YamlError, ManifestValidationError):
+                pass
+            else:
+                return run_root
+
+    request = load_queue_request(_request_path(worker_config, job_id))
+    run_id_raw = job.get("run_id")
+    if not isinstance(run_id_raw, str) or not run_id_raw.strip():
+        raise RuntimeError("missing_run_id")
+    manifest_text = build_pipeline_manifest_for_job(
+        worker_config,
+        request,
+        run_id=run_id_raw,
+    )
+    write_text(manifest_file, manifest_text)
+    run_root, _config = run_pipeline_manifest_path(manifest_file, runtime)
+    return run_root
 
 
 def _write_yaml(path: Path, document: Mapping[str, object]) -> None:

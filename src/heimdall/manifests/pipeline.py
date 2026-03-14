@@ -318,27 +318,25 @@ def _parse_lidskjalv_target(value: object, path: str) -> LidskjalvTargetConfig:
     )
 
 
-def _validate_repo_url(repo_url: str) -> None:
+def _validate_repo_url(repo_url: str, *, field_path: str = "source.repo_url") -> None:
     parsed = urlparse(repo_url)
     if parsed.scheme != "https":
-        raise ManifestValidationError("source.repo_url must use https")
+        raise ManifestValidationError(f"{field_path} must use https")
     if parsed.hostname != "github.com":
-        raise ManifestValidationError("source.repo_url must point to github.com")
+        raise ManifestValidationError(f"{field_path} must point to github.com")
     if parsed.username or parsed.password:
-        raise ManifestValidationError("source.repo_url must not include credentials")
+        raise ManifestValidationError(f"{field_path} must not include credentials")
     if parsed.query or parsed.fragment:
         raise ManifestValidationError(
-            "source.repo_url must not include query or fragment components"
+            f"{field_path} must not include query or fragment components"
         )
     segments = [segment for segment in parsed.path.split("/") if segment]
     if len(segments) != 2:
         raise ManifestValidationError(
-            "source.repo_url must match https://github.com/<owner>/<repo>[.git]"
+            f"{field_path} must match https://github.com/<owner>/<repo>[.git]"
         )
     if not segments[0] or not segments[1]:
-        raise ManifestValidationError(
-            "source.repo_url must identify a GitHub repository"
-        )
+        raise ManifestValidationError(f"{field_path} must identify a GitHub repository")
 
 
 def _reject_unknown_keys(

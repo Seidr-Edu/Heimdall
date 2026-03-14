@@ -141,6 +141,7 @@ class QueueRequest:
     andvari: dict[str, object] = field(default_factory=dict)
     kvasir: dict[str, object] = field(default_factory=dict)
     lidskjalv: dict[str, object] = field(default_factory=dict)
+    version: int = 1
 
 
 @dataclass(frozen=True)
