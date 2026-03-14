@@ -40,6 +40,68 @@ python3 -m heimdall resume /abs/path/runs/<run_id> \
 entrypoint is `orchestrator`. If `--codex-host-bin-dir` is omitted, Heimdall
 uses `--codex-bin-dir` for both host preflight and container mounts.
 
+## Queue worker
+
+Heimdall can also run as a long-lived VPS worker that owns a FIFO queue. The
+queue uses YAML request/job records under `queue/`, while the canonical
+pipeline outputs remain under `runs/<run_id>/`.
+
+Worker config example:
+
+- [examples/worker.example.yaml](/Users/oleremidahl/Documents/Master/Heimdall/examples/worker.example.yaml)
+- [examples/heimdall-worker.service](/Users/oleremidahl/Documents/Master/Heimdall/examples/heimdall-worker.service)
+
+Submit one job from your local machine over SSH:
+
+```bash
+python3 -m heimdall.cli submit \
+  --remote munin@example-vps \
+  --remote-worker-config /srv/pipeline/worker.yaml \
+  --repo-url https://github.com/example/demo-repo.git \
+  --commit-sha 0123456789abcdef0123456789abcdef01234567 \
+  --overrides /abs/path/to/overrides.yaml
+```
+
+Queue one job directly on the VPS:
+
+```bash
+cat request.yaml | python3 -m heimdall.cli enqueue \
+  --worker-config /srv/pipeline/worker.yaml \
+  --stdin
+```
+
+Run the worker once for testing:
+
+```bash
+python3 -m heimdall.cli worker \
+  --worker-config /srv/pipeline/worker.yaml \
+  --once
+```
+
+Run the long-lived worker under `systemd`:
+
+```bash
+sudo systemctl enable --now heimdall-worker
+sudo journalctl -u heimdall-worker -f
+```
+
+Inspect job status locally or over SSH:
+
+```bash
+python3 -m heimdall.cli status \
+  --worker-config /srv/pipeline/worker.yaml \
+  20260314T120000Z__example_demo-repo__01234567
+
+python3 -m heimdall.cli status \
+  --remote munin@example-vps \
+  --remote-worker-config /srv/pipeline/worker.yaml \
+  20260314T120000Z__example_demo-repo__01234567
+```
+
+The worker emits structured JSON log lines to stdout/stderr for operators, but
+job state and run outcomes should be read from `queue/jobs/<job_id>/job.yaml`
+and `runs/<run_id>/pipeline/outputs/run_report.json`, not from `journalctl`.
+
 ## Provider smoke
 
 When you want to check whether `Andvari` and `Kvasir` can actually use your

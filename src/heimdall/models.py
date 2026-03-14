@@ -8,6 +8,7 @@ PullPolicy = Literal["if-missing", "always", "never"]
 StepStatus = Literal[
     "pending", "running", "passed", "failed", "error", "blocked", "skipped"
 ]
+JobStatus = Literal["pending", "running", "passed", "failed", "error"]
 
 STEP_BROKK = "brokk"
 STEP_EITRI = "eitri"
@@ -114,6 +115,32 @@ class RuntimeConfig:
     sonar_token_present: bool
     sonar_organization: str | None
     verbose: bool = False
+
+
+@dataclass(frozen=True)
+class WorkerConfig:
+    queue_root: Path
+    runs_root: Path
+    codex_bin_dir: Path
+    codex_host_bin_dir: Path | None
+    codex_home_dir: Path
+    pull_policy: PullPolicy
+    verbose: bool
+    images: ImageRefs
+    eitri: EitriConfig
+    andvari: AndvariConfig
+    kvasir: KvasirConfig
+    lidskjalv: LidskjalvConfig
+
+
+@dataclass(frozen=True)
+class QueueRequest:
+    repo_url: str
+    commit_sha: str
+    eitri: dict[str, object] = field(default_factory=dict)
+    andvari: dict[str, object] = field(default_factory=dict)
+    kvasir: dict[str, object] = field(default_factory=dict)
+    lidskjalv: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

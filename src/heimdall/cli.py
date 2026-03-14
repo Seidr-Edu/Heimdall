@@ -1,21 +1,43 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-from heimdall.images import DockerError, ensure_docker_available, resolve_images
-from heimdall.manifest import ManifestValidationError, load_pipeline_manifest
-from heimdall.models import PipelineConfig, PullPolicy, RuntimeConfig
-from heimdall.runner import PreflightError, run_pipeline
+from heimdall.execution import (
+    build_runtime,
+    resume_run_root,
+    run_pipeline_manifest_path,
+)
+from heimdall.execution import (
+    check_codex_login as _check_codex_login,
+)
+from heimdall.images import DockerError, ensure_docker_available
+from heimdall.manifests.pipeline import ManifestValidationError, load_pipeline_manifest
+from heimdall.manifests.queue import (
+    load_queue_request_text,
+    load_worker_config,
+    request_from_submit_args,
+)
+from heimdall.models import RuntimeConfig
+from heimdall.queueing import (
+    dump_job_status_document,
+    enqueue_request,
+    load_job_status_document,
+    resolve_worker_config_path,
+    status_remote,
+    submit_remote,
+    worker_loop,
+)
+from heimdall.runner import PreflightError
 from heimdall.smoke import (
     SMOKE_SERVICES,
     default_provider_smoke_output_dir,
     run_provider_smoke,
 )
-from heimdall.utils import ensure_directory
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,7 +48,15 @@ def main(argv: list[str] | None = None) -> int:
             return _run_command(args)
         if args.command == "resume":
             return _resume_command(args)
-        return _smoke_provider_command(args)
+        if args.command == "smoke-provider":
+            return _smoke_provider_command(args)
+        if args.command == "enqueue":
+            return _enqueue_command(args)
+        if args.command == "worker":
+            return _worker_command(args)
+        if args.command == "submit":
+            return _submit_command(args)
+        return _status_command(args)
     except (ManifestValidationError, DockerError, PreflightError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -62,6 +92,45 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Limit the smoke probe to a specific service (repeatable)",
     )
     _add_runtime_args(smoke_parser)
+
+    enqueue_parser = subparsers.add_parser(
+        "enqueue", help="Validate and queue one run request on the VPS"
+    )
+    enqueue_parser.add_argument("--worker-config", type=Path, required=True)
+    enqueue_parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read the queue request YAML from stdin",
+    )
+
+    worker_parser = subparsers.add_parser(
+        "worker", help="Run the long-lived FIFO queue worker"
+    )
+    worker_parser.add_argument("--worker-config", type=Path, required=True)
+    worker_parser.add_argument("--poll-interval-sec", type=int, default=5)
+    worker_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Process at most one available job and then exit",
+    )
+
+    submit_parser = subparsers.add_parser(
+        "submit", help="Submit one queue request to a remote Heimdall worker over SSH"
+    )
+    submit_parser.add_argument("--remote", required=True)
+    submit_parser.add_argument("--remote-worker-config", required=True)
+    submit_parser.add_argument("--repo-url", required=True)
+    submit_parser.add_argument("--commit-sha", required=True)
+    submit_parser.add_argument("--overrides", type=Path)
+
+    status_parser = subparsers.add_parser(
+        "status", help="Show the queue and pipeline status for one job"
+    )
+    status_parser.add_argument("job_id")
+    status_parser.add_argument("--worker-config", type=Path)
+    status_parser.add_argument("--remote")
+    status_parser.add_argument("--remote-worker-config")
+
     return parser
 
 
@@ -89,62 +158,28 @@ def _add_runtime_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _run_command(args: argparse.Namespace) -> int:
-    raw_manifest, config = load_pipeline_manifest(args.pipeline_manifest)
-    runs_root = args.runs_root.resolve()
-    run_root = runs_root / config.run_id
-    if run_root.exists():
-        raise PreflightError(
-            f"Run directory already exists: {run_root}. Use resume instead."
-        )
-    runtime = _build_runtime(
-        runs_root,
+    runtime = build_runtime(
+        args.runs_root,
         args.codex_bin_dir,
         args.codex_host_bin_dir,
         args.codex_home_dir,
         args.pull_policy,
         args.verbose,
     )
-    _preflight(config, runtime)
-    resolved_images = resolve_images(
-        config.images, runtime.pull_policy, verbose=runtime.verbose
-    )
-    run_pipeline(
-        config=config,
-        runtime=runtime,
-        resolved_images=resolved_images,
-        run_root=run_root,
-        source_manifest_text=raw_manifest,
-        fresh_run=True,
-    )
+    run_pipeline_manifest_path(args.pipeline_manifest, runtime)
     return 0
 
 
 def _resume_command(args: argparse.Namespace) -> int:
-    run_root = args.run_dir.resolve()
-    manifest_path = run_root / "pipeline" / "manifest.yaml"
-    if not manifest_path.is_file():
-        raise PreflightError(f"Missing stored pipeline manifest: {manifest_path}")
-    raw_manifest, config = load_pipeline_manifest(manifest_path)
-    runtime = _build_runtime(
-        run_root.parent,
+    runtime = build_runtime(
+        args.run_dir.resolve().parent,
         args.codex_bin_dir,
         args.codex_host_bin_dir,
         args.codex_home_dir,
         args.pull_policy,
         args.verbose,
     )
-    _preflight(config, runtime)
-    resolved_images = resolve_images(
-        config.images, runtime.pull_policy, verbose=runtime.verbose
-    )
-    run_pipeline(
-        config=config,
-        runtime=runtime,
-        resolved_images=resolved_images,
-        run_root=run_root,
-        source_manifest_text=raw_manifest,
-        fresh_run=False,
-    )
+    resume_run_root(args.run_dir, runtime)
     return 0
 
 
@@ -155,7 +190,7 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         if args.output_dir is not None
         else default_provider_smoke_output_dir()
     )
-    runtime = _build_runtime(
+    runtime = build_runtime(
         output_dir.parent,
         args.codex_bin_dir,
         args.codex_host_bin_dir,
@@ -176,83 +211,61 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         output_dir=output_dir,
         services=tuple(args.service or SMOKE_SERVICES),
     )
-    summary_path = output_dir / "summary.json"
-    if runtime.verbose:
-        print(
-            f"[heimdall] provider smoke summary: {summary_path}",
-            file=sys.stderr,
-            flush=True,
-        )
-    return _smoke_exit_code(summary_path)
+    return _smoke_exit_code(output_dir / "summary.json")
 
 
-def _build_runtime(
-    runs_root: Path,
-    codex_bin_dir: Path,
-    codex_host_bin_dir: Path | None,
-    codex_home_dir: Path,
-    pull_policy: PullPolicy,
-    verbose: bool,
-) -> RuntimeConfig:
-    runs_root = runs_root.resolve()
-    codex_bin_dir = codex_bin_dir.resolve()
-    codex_host_bin_dir = (
-        codex_host_bin_dir.resolve()
-        if codex_host_bin_dir is not None
-        else codex_bin_dir
-    )
-    codex_home_dir = codex_home_dir.resolve()
-    return RuntimeConfig(
-        runs_root=runs_root,
-        codex_bin_dir=codex_bin_dir,
-        codex_host_bin_dir=codex_host_bin_dir,
-        codex_home_dir=codex_home_dir,
-        pull_policy=pull_policy,
-        sonar_host_url=os.environ.get("SONAR_HOST_URL"),
-        sonar_token_present=bool(os.environ.get("SONAR_TOKEN")),
-        sonar_organization=os.environ.get("SONAR_ORGANIZATION"),
-        verbose=verbose,
+def _enqueue_command(args: argparse.Namespace) -> int:
+    if not args.stdin:
+        raise RuntimeError("enqueue currently requires --stdin")
+    worker_config = load_worker_config(args.worker_config)
+    request = load_queue_request_text(sys.stdin.read())
+    document = enqueue_request(worker_config, request)
+    print(dump_job_status_document(document), end="")
+    return 0
+
+
+def _worker_command(args: argparse.Namespace) -> int:
+    if args.poll_interval_sec < 0:
+        raise RuntimeError("--poll-interval-sec must be non-negative")
+    worker_config = load_worker_config(args.worker_config)
+    return worker_loop(
+        worker_config,
+        poll_interval_sec=args.poll_interval_sec,
+        once=args.once,
     )
 
 
-def _preflight(config: PipelineConfig, runtime: RuntimeConfig) -> None:
-    if runtime.verbose:
-        print(
-            f"[heimdall] validating runtime under {runtime.runs_root}",
-            file=sys.stderr,
-            flush=True,
-        )
-    ensure_directory(runtime.runs_root, 0o755)
-    if not os.access(runtime.runs_root, os.W_OK):
-        raise PreflightError(f"Runs root is not writable: {runtime.runs_root}")
-    if not runtime.codex_bin_dir.is_dir():
-        raise PreflightError(f"Codex bin dir does not exist: {runtime.codex_bin_dir}")
-    if not runtime.codex_host_bin_dir.is_dir():
-        raise PreflightError(
-            f"Codex host bin dir does not exist: {runtime.codex_host_bin_dir}"
-        )
-    if not runtime.codex_home_dir.is_dir():
-        raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
-    ensure_docker_available()
-    if runtime.verbose:
-        print("[heimdall] docker daemon reachable", file=sys.stderr, flush=True)
-    _check_codex_login(runtime)
-    if runtime.verbose:
-        print("[heimdall] codex login status ok", file=sys.stderr, flush=True)
-    if not config.lidskjalv.skip_sonar:
-        missing = []
-        if runtime.sonar_host_url is None:
-            missing.append("SONAR_HOST_URL")
-        if not runtime.sonar_token_present:
-            missing.append("SONAR_TOKEN")
-        if runtime.sonar_organization is None:
-            missing.append("SONAR_ORGANIZATION")
-        if missing:
-            raise PreflightError(
-                f"Missing Sonar environment variable(s): {', '.join(missing)}"
+def _submit_command(args: argparse.Namespace) -> int:
+    request = request_from_submit_args(
+        args.repo_url,
+        args.commit_sha,
+        args.overrides,
+    )
+    completed = submit_remote(
+        args.remote,
+        args.remote_worker_config,
+        request,
+    )
+    _emit_completed_process(completed)
+    return completed.returncode
+
+
+def _status_command(args: argparse.Namespace) -> int:
+    if args.remote is not None:
+        if not args.remote_worker_config:
+            raise RuntimeError(
+                "--remote-worker-config is required when --remote is used"
             )
-    if runtime.verbose and not config.lidskjalv.skip_sonar:
-        print("[heimdall] sonar environment present", file=sys.stderr, flush=True)
+        completed = status_remote(
+            args.remote, args.remote_worker_config, args.job_id
+        )
+        _emit_completed_process(completed)
+        return completed.returncode
+
+    worker_config = load_worker_config(resolve_worker_config_path(args.worker_config))
+    document = load_job_status_document(worker_config, args.job_id)
+    print(dump_job_status_document(document), end="")
+    return 0
 
 
 def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
@@ -285,28 +298,14 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         print("[heimdall] codex login status ok", file=sys.stderr, flush=True)
 
 
-def _check_codex_login(runtime: RuntimeConfig) -> None:
-    codex_executable = runtime.codex_host_bin_dir / "codex"
-    if not codex_executable.is_file():
-        raise PreflightError(f"Missing codex executable: {codex_executable}")
-    env = os.environ.copy()
-    env["PATH"] = f"{runtime.codex_host_bin_dir}{os.pathsep}{env.get('PATH', '')}"
-    env["CODEX_HOME"] = str(runtime.codex_home_dir)
-    try:
-        subprocess.run(
-            ["codex", "login", "status"],
-            check=True,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-    except (subprocess.CalledProcessError, OSError) as exc:
-        raise PreflightError(f"codex login status failed: {exc}") from exc
+def _emit_completed_process(completed: subprocess.CompletedProcess[str]) -> None:
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
 
 
 def _smoke_exit_code(summary_path: Path) -> int:
-    import json
-
     payload = json.loads(summary_path.read_text(encoding="utf-8"))
     return 0 if payload.get("status") == "passed" else 1
 

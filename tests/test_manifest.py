@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from heimdall.manifest import (
+from heimdall.manifests.pipeline import (
     ManifestValidationError,
     derive_lidskjalv_defaults,
     load_pipeline_manifest,
