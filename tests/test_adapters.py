@@ -33,6 +33,7 @@ class AdapterTest(unittest.TestCase):
             runtime = RuntimeConfig(
                 runs_root=root / "runs",
                 codex_bin_dir=root / "provider" / "bin",
+                codex_host_bin_dir=root / "provider" / "bin",
                 codex_home_dir=root / "provider" / "home",
                 pull_policy="if-missing",
                 sonar_host_url=None,

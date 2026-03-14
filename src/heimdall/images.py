@@ -20,11 +20,11 @@ def resolve_images(
     images: ImageRefs, pull_policy: PullPolicy, *, verbose: bool = False
 ) -> ResolvedImages:
     return ResolvedImages(
-        brokk=_ensure_image(images.brokk, pull_policy, verbose=verbose),
-        eitri=_ensure_image(images.eitri, pull_policy, verbose=verbose),
-        andvari=_ensure_image(images.andvari, pull_policy, verbose=verbose),
-        kvasir=_ensure_image(images.kvasir, pull_policy, verbose=verbose),
-        lidskjalv=_ensure_image(images.lidskjalv, pull_policy, verbose=verbose),
+        brokk=resolve_image(images.brokk, pull_policy, verbose=verbose),
+        eitri=resolve_image(images.eitri, pull_policy, verbose=verbose),
+        andvari=resolve_image(images.andvari, pull_policy, verbose=verbose),
+        kvasir=resolve_image(images.kvasir, pull_policy, verbose=verbose),
+        lidskjalv=resolve_image(images.lidskjalv, pull_policy, verbose=verbose),
     )
 
 
@@ -49,6 +49,12 @@ def image_id_map(
     }
 
 
+def resolve_image(
+    image_ref: str, pull_policy: PullPolicy, *, verbose: bool = False
+) -> str:
+    return _ensure_image(image_ref, pull_policy, verbose=verbose)
+
+
 def run_container(
     image_ref: str,
     env: dict[str, str],
@@ -57,14 +63,20 @@ def run_container(
     stream_output: bool = False,
     output_path: Path | None = None,
     log_prefix: str | None = None,
+    entrypoint: str | None = None,
+    command_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = ["docker", "run", "--rm"]
+    if entrypoint is not None:
+        command.extend(["--entrypoint", entrypoint])
     for key, value in sorted(env.items()):
         command.extend(["-e", f"{key}={value}"])
     for host_path, container_path, read_only in mounts:
         suffix = ":ro" if read_only else ""
         command.extend(["-v", f"{host_path}:{container_path}{suffix}"])
     command.append(image_ref)
+    if command_args:
+        command.extend(command_args)
     if log_prefix is not None:
         print(f"[{log_prefix}] docker run {image_ref}", file=sys.stderr, flush=True)
     return _run_command(

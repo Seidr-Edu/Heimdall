@@ -107,6 +107,7 @@ class PipelineConfig:
 class RuntimeConfig:
     runs_root: Path
     codex_bin_dir: Path
+    codex_host_bin_dir: Path
     codex_home_dir: Path
     pull_policy: PullPolicy
     sonar_host_url: str | None
