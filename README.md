@@ -23,22 +23,23 @@ canonical service reports rather than container exit codes.
 ## CLI
 
 ```bash
-python3 -m heimdall run /abs/path/pipeline.yaml \
+heimdall run /abs/path/pipeline.yaml \
   --runs-root /abs/path/runs \
   --codex-bin-dir /abs/path/provider/bin \
   --codex-host-bin-dir /abs/path/host/provider/bin \
   --codex-home-dir /abs/path/provider/home \
   --verbose
 
-python3 -m heimdall resume /abs/path/runs/<run_id> \
+heimdall resume /abs/path/runs/<run_id> \
   --codex-bin-dir /abs/path/provider/bin \
   --codex-host-bin-dir /abs/path/host/provider/bin \
   --codex-home-dir /abs/path/provider/home
 ```
 
 `python3 -m heimdall.cli ...` works as well. After installation the console
-entrypoint is `orchestrator`. If `--codex-host-bin-dir` is omitted, Heimdall
-uses `--codex-bin-dir` for both host preflight and container mounts.
+entrypoints are `heimdall` and `orchestrator`. If `--codex-host-bin-dir` is
+omitted, Heimdall uses `--codex-bin-dir` for both host preflight and container
+mounts.
 
 ## Queue worker
 
@@ -54,18 +55,35 @@ Worker config example:
 Submit one job from your local machine over SSH:
 
 ```bash
-python3 -m heimdall.cli submit \
+heimdall submit \
   --remote munin@example-vps \
   --remote-worker-config /srv/pipeline/worker.yaml \
+  --remote-cli /home/munin/Heimdall/.venv/bin/heimdall \
   --repo-url https://github.com/example/demo-repo.git \
   --commit-sha 0123456789abcdef0123456789abcdef01234567 \
   --overrides /abs/path/to/overrides.yaml
 ```
 
+If you submit to the same VPS regularly, set remote defaults once in your shell:
+
+```bash
+export HEIMDALL_REMOTE=munin@example-vps
+export HEIMDALL_REMOTE_WORKER_CONFIG=/srv/pipeline/worker.yaml
+export HEIMDALL_REMOTE_CLI=/home/munin/Heimdall/.venv/bin/heimdall
+```
+
+Then the short forms work:
+
+```bash
+heimdall submit \
+  --repo-url https://github.com/example/demo-repo.git \
+  --commit-sha 0123456789abcdef0123456789abcdef01234567
+```
+
 Queue one job directly on the VPS:
 
 ```bash
-cat request.yaml | python3 -m heimdall.cli enqueue \
+cat request.yaml | heimdall enqueue \
   --worker-config /srv/pipeline/worker.yaml \
   --stdin
 ```
@@ -73,7 +91,7 @@ cat request.yaml | python3 -m heimdall.cli enqueue \
 Run the worker once for testing:
 
 ```bash
-python3 -m heimdall.cli worker \
+heimdall worker \
   --worker-config /srv/pipeline/worker.yaml \
   --once
 ```
@@ -88,13 +106,11 @@ sudo journalctl -u heimdall-worker -f
 Inspect job status locally or over SSH:
 
 ```bash
-python3 -m heimdall.cli status \
+heimdall status \
   --worker-config /srv/pipeline/worker.yaml \
   20260314T120000Z__example_demo-repo__01234567
 
-python3 -m heimdall.cli status \
-  --remote munin@example-vps \
-  --remote-worker-config /srv/pipeline/worker.yaml \
+heimdall status \
   20260314T120000Z__example_demo-repo__01234567
 ```
 

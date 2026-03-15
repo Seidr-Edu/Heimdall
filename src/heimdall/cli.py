@@ -39,6 +39,8 @@ from heimdall.smoke import (
     run_provider_smoke,
 )
 
+_DEFAULT_REMOTE_CLI = "heimdall"
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
@@ -117,8 +119,15 @@ def _build_parser() -> argparse.ArgumentParser:
     submit_parser = subparsers.add_parser(
         "submit", help="Submit one queue request to a remote Heimdall worker over SSH"
     )
-    submit_parser.add_argument("--remote", required=True)
-    submit_parser.add_argument("--remote-worker-config", required=True)
+    submit_parser.add_argument("--remote")
+    submit_parser.add_argument("--remote-worker-config")
+    submit_parser.add_argument(
+        "--remote-cli",
+        help=(
+            "Remote Heimdall executable or command prefix. Defaults to "
+            "HEIMDALL_REMOTE_CLI or 'heimdall'."
+        ),
+    )
     submit_parser.add_argument("--repo-url", required=True)
     submit_parser.add_argument("--commit-sha", required=True)
     submit_parser.add_argument("--overrides", type=Path)
@@ -130,6 +139,13 @@ def _build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--worker-config", type=Path)
     status_parser.add_argument("--remote")
     status_parser.add_argument("--remote-worker-config")
+    status_parser.add_argument(
+        "--remote-cli",
+        help=(
+            "Remote Heimdall executable or command prefix. Defaults to "
+            "HEIMDALL_REMOTE_CLI or 'heimdall'."
+        ),
+    )
 
     return parser
 
@@ -236,27 +252,33 @@ def _worker_command(args: argparse.Namespace) -> int:
 
 
 def _submit_command(args: argparse.Namespace) -> int:
+    remote = _resolve_required_remote_arg(args.remote)
+    remote_worker_config = _resolve_required_remote_worker_config(
+        args.remote_worker_config
+    )
     request = request_from_submit_args(
         args.repo_url,
         args.commit_sha,
         args.overrides,
     )
     completed = submit_remote(
-        args.remote,
-        args.remote_worker_config,
+        remote,
+        remote_worker_config,
         request,
+        remote_cli=_resolve_remote_cli(args.remote_cli),
     )
     _emit_completed_process(completed)
     return completed.returncode
 
 
 def _status_command(args: argparse.Namespace) -> int:
-    if args.remote is not None:
-        if not args.remote_worker_config:
-            raise RuntimeError(
-                "--remote-worker-config is required when --remote is used"
-            )
-        completed = status_remote(args.remote, args.remote_worker_config, args.job_id)
+    if _use_remote_status(args):
+        completed = status_remote(
+            _resolve_required_remote_arg(args.remote),
+            _resolve_required_remote_worker_config(args.remote_worker_config),
+            args.job_id,
+            remote_cli=_resolve_remote_cli(args.remote_cli),
+        )
         _emit_completed_process(completed)
         return completed.returncode
 
@@ -306,6 +328,57 @@ def _emit_completed_process(completed: subprocess.CompletedProcess[str]) -> None
 def _smoke_exit_code(summary_path: Path) -> int:
     payload = json.loads(summary_path.read_text(encoding="utf-8"))
     return 0 if payload.get("status") == "passed" else 1
+
+
+def _resolve_required_remote_arg(value: str | None) -> str:
+    remote = _first_non_empty(value, os.environ.get("HEIMDALL_REMOTE"))
+    if remote is None:
+        raise RuntimeError("--remote is required or set HEIMDALL_REMOTE")
+    return remote
+
+
+def _resolve_required_remote_worker_config(value: str | None) -> str:
+    config_path = _first_non_empty(
+        value,
+        os.environ.get("HEIMDALL_REMOTE_WORKER_CONFIG"),
+    )
+    if config_path is None:
+        raise RuntimeError(
+            "--remote-worker-config is required or set HEIMDALL_REMOTE_WORKER_CONFIG"
+        )
+    return config_path
+
+
+def _resolve_remote_cli(value: str | None) -> str:
+    cli = _first_non_empty(value, os.environ.get("HEIMDALL_REMOTE_CLI"))
+    if cli is not None:
+        return cli
+    return _DEFAULT_REMOTE_CLI
+
+
+def _first_non_empty(*values: str | None) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        trimmed = value.strip()
+        if trimmed:
+            return trimmed
+    return None
+
+
+def _use_remote_status(args: argparse.Namespace) -> bool:
+    if args.worker_config is not None:
+        return False
+    return any(
+        (
+            _first_non_empty(args.remote),
+            _first_non_empty(args.remote_worker_config),
+            _first_non_empty(args.remote_cli),
+            _first_non_empty(os.environ.get("HEIMDALL_REMOTE")),
+            _first_non_empty(os.environ.get("HEIMDALL_REMOTE_WORKER_CONFIG")),
+            _first_non_empty(os.environ.get("HEIMDALL_REMOTE_CLI")),
+        )
+    )
 
 
 if __name__ == "__main__":

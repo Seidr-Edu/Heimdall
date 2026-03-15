@@ -285,6 +285,8 @@ class QueueIntegrationTest(unittest.TestCase):
                         "munin@example",
                         "--remote-worker-config",
                         "/srv/pipeline/worker.yaml",
+                        "--remote-cli",
+                        "/home/munin/Heimdall/.venv/bin/heimdall",
                         "--repo-url",
                         "https://github.com/example/demo-repo.git",
                         "--commit-sha",
@@ -297,6 +299,7 @@ class QueueIntegrationTest(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "job_id: demo\n")
         call = mocked_run.call_args
         self.assertEqual(call.args[0][0], "ssh")
+        self.assertIn("/home/munin/Heimdall/.venv/bin/heimdall", call.args[0][2])
         self.assertIn("enqueue", call.args[0][2])
         self.assertIn("repo_url:", call.kwargs["input"])
         self.assertIn("andvari:", call.kwargs["input"])
@@ -319,6 +322,8 @@ class QueueIntegrationTest(unittest.TestCase):
                         "munin@example",
                         "--remote-worker-config",
                         "/srv/pipeline/worker.yaml",
+                        "--remote-cli",
+                        "/home/munin/Heimdall/.venv/bin/heimdall",
                         "20260312T120000Z__demo__01234567",
                     ]
                 )
@@ -326,7 +331,79 @@ class QueueIntegrationTest(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "status: passed\n")
         call = mocked_run.call_args
         self.assertEqual(call.args[0][0], "ssh")
+        self.assertIn("/home/munin/Heimdall/.venv/bin/heimdall", call.args[0][2])
         self.assertIn("status", call.args[0][2])
+
+    def test_submit_uses_remote_env_defaults(self) -> None:
+        with mock.patch("heimdall.queueing.worker.subprocess.run") as mocked_run:
+            mocked_run.return_value = subprocess.CompletedProcess(
+                args=["ssh"],
+                returncode=0,
+                stdout="job_id: demo\n",
+                stderr="",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "HEIMDALL_REMOTE": "munin@example",
+                        "HEIMDALL_REMOTE_WORKER_CONFIG": "/srv/pipeline/worker.yaml",
+                        "HEIMDALL_REMOTE_CLI": (
+                            "/home/munin/Heimdall/.venv/bin/heimdall"
+                        ),
+                    },
+                    clear=False,
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                return_code = main(
+                    [
+                        "submit",
+                        "--repo-url",
+                        "https://github.com/example/demo-repo.git",
+                        "--commit-sha",
+                        "0123456789abcdef0123456789abcdef01234567",
+                    ]
+                )
+        self.assertEqual(return_code, 0)
+        call = mocked_run.call_args
+        self.assertEqual(call.args[0][1], "munin@example")
+        self.assertIn("/home/munin/Heimdall/.venv/bin/heimdall", call.args[0][2])
+
+    def test_status_uses_remote_env_defaults(self) -> None:
+        with mock.patch("heimdall.queueing.worker.subprocess.run") as mocked_run:
+            mocked_run.return_value = subprocess.CompletedProcess(
+                args=["ssh"],
+                returncode=0,
+                stdout="status: pending\n",
+                stderr="",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "HEIMDALL_REMOTE": "munin@example",
+                        "HEIMDALL_REMOTE_WORKER_CONFIG": "/srv/pipeline/worker.yaml",
+                        "HEIMDALL_REMOTE_CLI": (
+                            "/home/munin/Heimdall/.venv/bin/heimdall"
+                        ),
+                    },
+                    clear=False,
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                return_code = main(["status", "20260312T120000Z__demo__01234567"])
+        self.assertEqual(return_code, 0)
+        self.assertEqual(stdout.getvalue(), "status: pending\n")
+        call = mocked_run.call_args
+        self.assertEqual(call.args[0][1], "munin@example")
+        self.assertIn("/home/munin/Heimdall/.venv/bin/heimdall", call.args[0][2])
 
     def test_worker_lock_failure_returns_error(self) -> None:
         stderr = io.StringIO()

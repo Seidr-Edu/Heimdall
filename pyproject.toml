@@ -25,6 +25,7 @@ dev = [
 ]
 
 [project.scripts]
+heimdall = "heimdall.cli:main"
 orchestrator = "heimdall.cli:main"
 
 [tool.setuptools]

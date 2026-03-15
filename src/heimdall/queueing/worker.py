@@ -145,10 +145,15 @@ def submit_remote(
     remote: str,
     remote_worker_config: str,
     request: QueueRequest,
+    *,
+    remote_cli: str,
 ) -> subprocess.CompletedProcess[str]:
-    command = (
-        "python3 -m heimdall.cli enqueue "
-        f"--worker-config {shlex.quote(remote_worker_config)} --stdin"
+    command = _build_remote_cli_command(
+        remote_cli,
+        "enqueue",
+        "--worker-config",
+        remote_worker_config,
+        "--stdin",
     )
     return subprocess.run(
         ["ssh", remote, command],
@@ -163,10 +168,15 @@ def status_remote(
     remote: str,
     remote_worker_config: str,
     job_id: str,
+    *,
+    remote_cli: str,
 ) -> subprocess.CompletedProcess[str]:
-    command = (
-        "python3 -m heimdall.cli status "
-        f"--worker-config {shlex.quote(remote_worker_config)} {shlex.quote(job_id)}"
+    command = _build_remote_cli_command(
+        remote_cli,
+        "status",
+        "--worker-config",
+        remote_worker_config,
+        job_id,
     )
     return subprocess.run(
         ["ssh", remote, command],
@@ -478,3 +488,13 @@ def _run_report_path_from_job(document: Mapping[str, object]) -> Path | None:
 def _emit_worker_log(event: str, **fields: object) -> None:
     payload = {"event": event, **fields}
     print(json.dumps(payload, sort_keys=True), file=sys.stderr, flush=True)
+
+
+def _build_remote_cli_command(remote_cli: str, *args: str) -> str:
+    cli = remote_cli.strip()
+    if not cli:
+        raise RuntimeError("Remote CLI command must not be empty")
+    quoted_args = " ".join(shlex.quote(arg) for arg in args)
+    if quoted_args:
+        return f"{cli} {quoted_args}"
+    return cli
