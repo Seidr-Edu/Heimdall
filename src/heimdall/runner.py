@@ -15,7 +15,7 @@ from heimdall.adapters import (
     upstream_report_dependencies,
 )
 from heimdall.images import run_container
-from heimdall.manifest import pipeline_to_document, runtime_snapshot
+from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
     PipelineConfig,
     ResolvedImages,

@@ -1,0 +1,16 @@
+[Unit]
+Description=Heimdall queue worker
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=munin
+WorkingDirectory=/srv/pipeline/Heimdall
+Environment=PYTHONPATH=/srv/pipeline/Heimdall/src
+ExecStart=/usr/bin/python3 -m heimdall.cli worker --worker-config /srv/pipeline/worker.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

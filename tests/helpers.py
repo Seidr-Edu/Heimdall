@@ -84,6 +84,97 @@ def build_pipeline_manifest(
     return dumps(document)
 
 
+def build_worker_config(
+    *,
+    queue_root: Path,
+    runs_root: Path,
+    codex_bin_dir: Path,
+    codex_home_dir: Path,
+    codex_host_bin_dir: Path | None = None,
+    skip_sonar: bool = True,
+    verbose: bool = False,
+) -> str:
+    document: dict[str, object] = {
+        "version": 1,
+        "queue_root": str(queue_root),
+        "runs_root": str(runs_root),
+        "codex_bin_dir": str(codex_bin_dir),
+        "codex_home_dir": str(codex_home_dir),
+        "pull_policy": "if-missing",
+        "verbose": verbose,
+        "images": {
+            "brokk": "fake/brokk:1",
+            "eitri": "fake/eitri:1",
+            "andvari": "fake/andvari:1",
+            "kvasir": "fake/kvasir:1",
+            "lidskjalv": "fake/lidskjalv:1",
+        },
+        "eitri": {
+            "source_relpaths": ["src/main/java", "shared/src/main/java"],
+            "parser_extension": ".java",
+            "writer_extension": ".puml",
+            "verbose": True,
+            "writers": {
+                "plantuml": {
+                    "diagramName": "diagram",
+                    "hidePrivate": True,
+                }
+            },
+        },
+        "andvari": {
+            "gating_mode": "model",
+            "max_iter": 8,
+            "max_gate_revisions": 3,
+            "model_gate_timeout_sec": 120,
+        },
+        "kvasir": {
+            "original_subdir": "app",
+            "generated_subdir": "generated/app",
+            "max_iter": 5,
+            "write_scope_ignore_prefixes": ["completion/proof/logs", ".m2"],
+        },
+        "lidskjalv": {
+            "skip_sonar": skip_sonar,
+            "sonar_wait_timeout_sec": 300,
+            "sonar_wait_poll_sec": 5,
+            "original": {
+                "repo_subdir": "app",
+            },
+            "generated": {
+                "repo_subdir": "generated/app",
+            },
+        },
+    }
+    if codex_host_bin_dir is not None:
+        document["codex_host_bin_dir"] = str(codex_host_bin_dir)
+    return dumps(document)
+
+
+def build_queue_request(
+    *,
+    repo_url: str = "https://github.com/example/demo-repo.git",
+    commit_sha: str = "0123456789abcdef0123456789abcdef01234567",
+    eitri: dict[str, object] | None = None,
+    andvari: dict[str, object] | None = None,
+    kvasir: dict[str, object] | None = None,
+    lidskjalv: dict[str, object] | None = None,
+) -> str:
+    document: dict[str, object] = {
+        "version": 1,
+        "repo_url": repo_url,
+        "commit_sha": commit_sha,
+    }
+    if eitri:
+        document["eitri"] = eitri
+    if andvari:
+        document["andvari"] = andvari
+    if kvasir:
+        document["kvasir"] = kvasir
+    if lidskjalv:
+        document["lidskjalv"] = lidskjalv
+    return dumps(document)
+
+
 def write_file(path: Path, content: str, mode: int = 0o644) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

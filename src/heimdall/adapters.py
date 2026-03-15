@@ -4,7 +4,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from heimdall.manifest import derive_lidskjalv_defaults
+from heimdall.manifests.services import build_step_manifest_payload
 from heimdall.models import (
     ALL_STEPS,
     STEP_ANDVARI,
@@ -24,7 +24,7 @@ from heimdall.models import (
 )
 from heimdall.reporting import load_report
 from heimdall.simpleyaml import dumps
-from heimdall.utils import ensure_directory, read_json, write_text
+from heimdall.utils import ensure_directory, write_text
 
 
 @dataclass(frozen=True)
@@ -106,12 +106,7 @@ def prepare_step(
     provider_seed_dest: Path | None = None
 
     if step == STEP_BROKK:
-        payload = {
-            "version": 1,
-            "run_id": context.config.run_id,
-            "repo_url": context.config.source.repo_url,
-            "commit_sha": context.config.source.commit_sha,
-        }
+        payload = build_step_manifest_payload(step, context)
         env = {"BROKK_MANIFEST": "/run/config/manifest.yaml"}
         mounts = (
             DockerMount(config_dir, "/run/config", True),
@@ -120,19 +115,7 @@ def prepare_step(
         image_ref = context.config.images.brokk
         resolved_image_id = context.resolved_images.brokk
     elif step == STEP_EITRI:
-        payload = {
-            "version": 1,
-            "run_id": context.config.run_id,
-            "source_relpaths": list(context.config.eitri.source_relpaths),
-        }
-        if context.config.eitri.parser_extension is not None:
-            payload["parser_extension"] = context.config.eitri.parser_extension
-        if context.config.eitri.writer_extension is not None:
-            payload["writer_extension"] = context.config.eitri.writer_extension
-        if context.config.eitri.verbose:
-            payload["verbose"] = True
-        if context.config.eitri.writers:
-            payload["writers"] = context.config.eitri.writers
+        payload = build_step_manifest_payload(step, context)
         env = {"EITRI_MANIFEST": "/run/config/manifest.yaml"}
         mounts = (
             DockerMount(_brokk_original_repo(context.run_root), "/input/repo", True),
@@ -142,16 +125,7 @@ def prepare_step(
         image_ref = context.config.images.eitri
         resolved_image_id = context.resolved_images.eitri
     elif step == STEP_ANDVARI:
-        payload = {
-            "version": 1,
-            "run_id": context.config.run_id,
-            "adapter": "codex",
-            "gating_mode": context.config.andvari.gating_mode,
-            "max_iter": context.config.andvari.max_iter,
-            "max_gate_revisions": context.config.andvari.max_gate_revisions,
-            "model_gate_timeout_sec": context.config.andvari.model_gate_timeout_sec,
-            "diagram_relpath": "diagram.puml",
-        }
+        payload = build_step_manifest_payload(step, context)
         input_model_dir = service_root / "input" / "model"
         ensure_directory(input_model_dir, 0o755)
         if stage_inputs:
@@ -176,21 +150,7 @@ def prepare_step(
         provider_seed_source = context.runtime.codex_home_dir
         provider_seed_dest = provider_seed_dir
     elif step == STEP_KVASIR:
-        payload = {
-            "version": 1,
-            "run_id": context.config.run_id,
-            "adapter": "codex",
-            "diagram_relpath": "diagram.puml",
-            "max_iter": context.config.kvasir.max_iter,
-        }
-        if context.config.kvasir.original_subdir is not None:
-            payload["original_subdir"] = context.config.kvasir.original_subdir
-        if context.config.kvasir.generated_subdir is not None:
-            payload["generated_subdir"] = context.config.kvasir.generated_subdir
-        if context.config.kvasir.write_scope_ignore_prefixes:
-            payload["write_scope_ignore_prefixes"] = list(
-                context.config.kvasir.write_scope_ignore_prefixes
-            )
+        payload = build_step_manifest_payload(step, context)
         provider_bin_dir = service_root / "input" / "provider-bin"
         provider_seed_dir = service_root / "input" / "provider-seed"
         env = {"KVASIR_MANIFEST": "/run/config/manifest.yaml"}
@@ -215,26 +175,7 @@ def prepare_step(
         provider_seed_dest = provider_seed_dir
     else:
         generated = step == STEP_LIDSKJALV_GENERATED
-        defaults = _derive_scan_defaults(context)
-        target_config = (
-            context.config.lidskjalv.generated
-            if generated
-            else context.config.lidskjalv.original
-        )
-        scan_label = "generated" if generated else "original"
-        payload = {
-            "version": 1,
-            "run_id": context.config.run_id,
-            "scan_label": scan_label,
-            "project_key": target_config.project_key or defaults[f"{scan_label}_key"],
-            "project_name": target_config.project_name
-            or defaults[f"{scan_label}_name"],
-            "skip_sonar": context.config.lidskjalv.skip_sonar,
-            "sonar_wait_timeout_sec": context.config.lidskjalv.sonar_wait_timeout_sec,
-            "sonar_wait_poll_sec": context.config.lidskjalv.sonar_wait_poll_sec,
-        }
-        if target_config.repo_subdir is not None:
-            payload["repo_subdir"] = target_config.repo_subdir
+        payload = build_step_manifest_payload(step, context)
         env = {"LIDSKJALV_MANIFEST": "/run/config/manifest.yaml"}
         if not context.config.lidskjalv.skip_sonar:
             if context.runtime.sonar_host_url is not None:
@@ -372,19 +313,6 @@ def upstream_report_dependencies(step: str, run_root: Path) -> dict[str, Path]:
         rel_path = STEP_DEFINITIONS[dependency].report_relative_path
         mapping[dependency] = base / service_dir / "run" / rel_path
     return mapping
-
-
-def brokk_source_manifest(run_root: Path) -> Path:
-    return run_root / "services" / "brokk" / "run" / "inputs" / "source-manifest.json"
-
-
-def _derive_scan_defaults(context: AdapterContext) -> dict[str, str]:
-    source_manifest_path = brokk_source_manifest(context.run_root)
-    repo_url = context.config.source.repo_url
-    if source_manifest_path.is_file():
-        source_manifest = read_json(source_manifest_path)
-        repo_url = str(source_manifest.get("repo_url", repo_url))
-    return derive_lidskjalv_defaults(repo_url)
 
 
 def _brokk_original_repo(run_root: Path) -> Path:

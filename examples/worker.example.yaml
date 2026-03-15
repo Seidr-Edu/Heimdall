@@ -1,18 +1,17 @@
-# VPS-oriented Heimdall manifest.
-# Update run_id before each fresh `heimdall.cli run`.
-
 version: 1
-run_id: 20260313T000000Z__vps
-
-source:
-  repo_url: https://github.com/seidr-edu/Eitri.git
-  commit_sha: 14be0f5d3f464b3eb759fe4898b51523fb14e78e
+queue_root: /srv/pipeline/queue
+runs_root: /srv/pipeline/runs
+codex_bin_dir: /srv/pipeline/provider/codex/bin
+codex_host_bin_dir: /srv/pipeline/provider/codex/bin
+codex_home_dir: /srv/pipeline/provider/codex/home
+pull_policy: if-missing
+verbose: false
 
 images:
   brokk: ghcr.io/seidr-edu/brokk:v1.0.0
   eitri: ghcr.io/seidr-edu/eitri:v1.9.0
-  andvari: ghcr.io/seidr-edu/andvari:v1.0.2
-  kvasir: ghcr.io/seidr-edu/kvasir:v1.0.2
+  andvari: ghcr.io/seidr-edu/andvari:v1.0.1
+  kvasir: ghcr.io/seidr-edu/kvasir:v1.0.1
   lidskjalv: ghcr.io/seidr-edu/lidskjalv:v1.1.1
 
 eitri:
@@ -38,8 +37,8 @@ lidskjalv:
   sonar_wait_timeout_sec: 300
   sonar_wait_poll_sec: 5
   original:
-    project_key: heimdall_vps_original
-    project_name: Heimdall VPS original
+    project_key: example_original
+    project_name: Example original
   generated:
-    project_key: heimdall_vps_generated
-    project_name: Heimdall VPS generated
+    project_key: example_generated
+    project_name: Example generated
