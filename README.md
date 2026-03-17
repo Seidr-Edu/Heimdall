@@ -20,6 +20,19 @@ canonical service reports rather than container exit codes.
   configured image ref.
 - Resume reuses only previously passed steps whose fingerprint still matches.
 
+## Install
+
+From the repo root, activate the virtualenv and install Heimdall in editable
+mode:
+
+```bash
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+```
+
+That installs the `heimdall` and `orchestrator` console entrypoints into the
+virtualenv so you can run Heimdall commands directly.
+
 ## CLI
 
 ```bash
@@ -67,7 +80,7 @@ heimdall submit \
 If you submit to the same VPS regularly, set remote defaults once in your shell:
 
 ```bash
-export HEIMDALL_REMOTE=munin@example-vps
+export HEIMDALL_REMOTE=seidr-munin
 export HEIMDALL_REMOTE_WORKER_CONFIG=/srv/pipeline/worker.yaml
 export HEIMDALL_REMOTE_CLI=/home/munin/Heimdall/.venv/bin/heimdall
 ```
@@ -289,9 +302,9 @@ prefix. The same output is also written to `pipeline/logs/<step>.log`.
 
 ## Development
 
-The package metadata targets Python `3.14.x` and is pinned to the current
-stable line in `pyproject.toml`. The local test suite uses only the standard
-library plus fake `docker` and `codex` shims.
+The package metadata currently supports Python `>=3.12,<3.15` as declared in
+`pyproject.toml`. The local test suite uses only the standard library plus fake
+`docker` and `codex` shims.
 
 Run the full test suite:
 
