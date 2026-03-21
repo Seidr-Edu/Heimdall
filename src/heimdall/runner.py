@@ -24,8 +24,8 @@ from heimdall.models import (
     StepState,
 )
 from heimdall.reporting import write_artifact_index, write_run_outputs
-from heimdall.sonar_follow_up import sync_sonar_follow_up
 from heimdall.simpleyaml import dumps
+from heimdall.sonar_follow_up import sync_sonar_follow_up
 from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
 from heimdall.utils import (
     ensure_directory,

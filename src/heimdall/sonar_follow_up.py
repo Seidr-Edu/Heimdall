@@ -63,7 +63,9 @@ def sync_sonar_follow_up(
     return document
 
 
-def update_sonar_follow_up(path: Path, *, sonar_host_url: str, sonar_token: str) -> bool:
+def update_sonar_follow_up(
+    path: Path, *, sonar_host_url: str, sonar_token: str
+) -> bool:
     document = load_sonar_follow_up(path)
     steps = _mapping(document.get("steps"))
     if not steps:
@@ -133,6 +135,8 @@ def sonar_worker_loop(runs_root: Path, *, once: bool) -> int:
         raise RuntimeError(
             f"Missing Sonar environment variable(s): {', '.join(missing)}"
         )
+    assert sonar_host_url is not None
+    assert sonar_token is not None
 
     while True:
         for path in find_pending_sonar_follow_up_paths(runs_root):
@@ -289,7 +293,9 @@ def _refresh_entry(
     task_id = _nullable_str(current.get("sonar_task_id"))
     if task_id is None or project_key is None:
         current["status"] = "failed"
-        current["reason"] = _nullable_str(current.get("reason")) or "missing-sonar-task-id"
+        current["reason"] = (
+            _nullable_str(current.get("reason")) or "missing-sonar-task-id"
+        )
         current["data_status"] = "unavailable"
         current["last_checked_at"] = timestamp_utc()
         current["last_error"] = None
@@ -368,7 +374,7 @@ def _sonar_api_get_json(
 ) -> dict[str, object]:
     query = urllib.parse.urlencode(params)
     url = f"{sonar_host_url.rstrip('/')}{path}?{query}"
-    auth = base64.b64encode(f"{sonar_token}:".encode("utf-8")).decode("ascii")
+    auth = base64.b64encode(f"{sonar_token}:".encode()).decode("ascii")
     request = urllib.request.Request(
         url,
         headers={
@@ -392,7 +398,9 @@ def _sonar_api_get_json(
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Invalid Sonar API response for {path}: {exc}") from exc
     if not isinstance(loaded, dict):
-        raise RuntimeError(f"Invalid Sonar API response for {path}: root must be an object")
+        raise RuntimeError(
+            f"Invalid Sonar API response for {path}: root must be an object"
+        )
     return dict(loaded)
 
 
@@ -415,7 +423,13 @@ def _extract_measures(payload: Mapping[str, object]) -> dict[str, str]:
 
 def _step_report_path(run_root: Path, step: str) -> Path:
     definition = STEP_DEFINITIONS[step]
-    return run_root / "services" / definition.service_dir_name / "run" / definition.report_relative_path
+    return (
+        run_root
+        / "services"
+        / definition.service_dir_name
+        / "run"
+        / definition.report_relative_path
+    )
 
 
 def _load_service_report(path: Path) -> dict[str, object] | None:
@@ -459,7 +473,9 @@ def _new_entry(
 
 
 def _overall_status(entries: Any) -> str:
-    statuses = [_nullable_str(_mapping(entry).get("status")) or "pending" for entry in entries]
+    statuses = [
+        _nullable_str(_mapping(entry).get("status")) or "pending" for entry in entries
+    ]
     if not statuses:
         return "skipped"
     if any(status == "failed" for status in statuses):

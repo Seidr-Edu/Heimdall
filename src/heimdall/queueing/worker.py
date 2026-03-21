@@ -23,8 +23,8 @@ from heimdall.manifests.queue import (
     load_queue_request,
 )
 from heimdall.models import JobStatus, QueueRequest, RuntimeConfig, WorkerConfig
-from heimdall.sonar_follow_up import sonar_follow_up_path
 from heimdall.simpleyaml import YamlError, dumps, loads
+from heimdall.sonar_follow_up import sonar_follow_up_path
 from heimdall.utils import (
     compact_run_id,
     ensure_directory,

@@ -33,12 +33,12 @@ from heimdall.queueing import (
     worker_loop,
 )
 from heimdall.runner import PreflightError
-from heimdall.sonar_follow_up import sonar_worker_loop
 from heimdall.smoke import (
     SMOKE_SERVICES,
     default_provider_smoke_output_dir,
     run_provider_smoke,
 )
+from heimdall.sonar_follow_up import sonar_worker_loop
 
 _DEFAULT_REMOTE_CLI = "heimdall"
 
