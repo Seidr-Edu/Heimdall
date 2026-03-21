@@ -24,6 +24,7 @@ from heimdall.models import (
     StepState,
 )
 from heimdall.reporting import write_artifact_index, write_run_outputs
+from heimdall.sonar_follow_up import sync_sonar_follow_up
 from heimdall.simpleyaml import dumps
 from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
 from heimdall.utils import (
@@ -100,6 +101,7 @@ def run_pipeline(
         started_at,
         finished_at,
     )
+    sync_sonar_follow_up(run_root, config.run_id, steps_snapshot)
     _emit(context.runtime, f"finished run {config.run_id}")
     return run_root
 

@@ -42,8 +42,6 @@ kvasir:
 
 lidskjalv:
   skip_sonar: false
-  sonar_wait_timeout_sec: 300
-  sonar_wait_poll_sec: 5
   original:
     repo_subdir: app
   generated:

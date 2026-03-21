@@ -29,6 +29,8 @@ class ManifestTest(unittest.TestCase):
             config.kvasir.write_scope_ignore_prefixes, ("completion/proof/logs", ".m2")
         )
         self.assertTrue(config.eitri.writers["plantuml"]["hidePrivate"])
+        self.assertEqual(config.lidskjalv.sonar_wait_timeout_sec, 300)
+        self.assertEqual(config.lidskjalv.sonar_wait_poll_sec, 5)
 
     def test_rejects_unknown_top_level_keys(self) -> None:
         source = build_pipeline_manifest() + "unexpected: true\n"
@@ -54,6 +56,19 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(defaults["original_key"], "acme_my.repo__original")
         self.assertEqual(defaults["generated_key"], "acme_my.repo__generated")
         self.assertEqual(defaults["generated_name"], "acme/my.repo (generated)")
+
+    def test_accepts_legacy_sonar_wait_fields(self) -> None:
+        source = build_pipeline_manifest().replace(
+            "lidskjalv:\n  skip_sonar: true\n",
+            "lidskjalv:\n  skip_sonar: true\n  sonar_wait_timeout_sec: 1\n  sonar_wait_poll_sec: 0\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "pipeline.yaml"
+            write_file(manifest_path, source)
+            _raw, config = load_pipeline_manifest(manifest_path)
+
+        self.assertEqual(config.lidskjalv.sonar_wait_timeout_sec, 1)
+        self.assertEqual(config.lidskjalv.sonar_wait_poll_sec, 0)
 
 
 if __name__ == "__main__":

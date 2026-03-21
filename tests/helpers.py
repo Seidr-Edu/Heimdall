@@ -71,8 +71,6 @@ def build_pipeline_manifest(
         },
         "lidskjalv": {
             "skip_sonar": skip_sonar,
-            "sonar_wait_timeout_sec": 300,
-            "sonar_wait_poll_sec": 5,
             "original": {
                 "repo_subdir": "app",
             },
@@ -135,8 +133,6 @@ def build_worker_config(
         },
         "lidskjalv": {
             "skip_sonar": skip_sonar,
-            "sonar_wait_timeout_sec": 300,
-            "sonar_wait_poll_sec": 5,
             "original": {
                 "repo_subdir": "app",
             },

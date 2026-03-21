@@ -97,8 +97,6 @@ def pipeline_to_document(config: PipelineConfig) -> dict[str, object]:
         },
         "lidskjalv": {
             "skip_sonar": config.lidskjalv.skip_sonar,
-            "sonar_wait_timeout_sec": config.lidskjalv.sonar_wait_timeout_sec,
-            "sonar_wait_poll_sec": config.lidskjalv.sonar_wait_poll_sec,
             "original": {
                 "repo_subdir": config.lidskjalv.original.repo_subdir,
                 "project_key": config.lidskjalv.original.project_key,

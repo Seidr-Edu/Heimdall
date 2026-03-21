@@ -265,6 +265,60 @@ class QueueIntegrationTest(unittest.TestCase):
         self.assertEqual(finished_document["pipeline"]["status"], "passed")
         self.assertIn("brokk", finished_document["pipeline"]["steps"])
 
+    def test_status_reports_pending_sonar_follow_up_for_async_submission(self) -> None:
+        write_file(
+            self.worker_config_path,
+            build_worker_config(
+                queue_root=self.queue_root,
+                runs_root=self.runs_root,
+                codex_bin_dir=self.bin_dir,
+                codex_home_dir=self.home_dir,
+                skip_sonar=False,
+            ),
+        )
+        job_id = self._enqueue_job()
+
+        worker = self._run_cli(
+            [
+                "worker",
+                "--worker-config",
+                str(self.worker_config_path),
+                "--once",
+            ],
+            extra_env={
+                "SONAR_HOST_URL": "https://sonar.example.test",
+                "SONAR_TOKEN": "token",
+                "SONAR_ORGANIZATION": "example-org",
+            },
+        )
+        self.assertEqual(worker.returncode, 0, worker.stderr)
+
+        finished = self._run_cli(
+            [
+                "status",
+                "--worker-config",
+                str(self.worker_config_path),
+                job_id,
+            ]
+        )
+        self.assertEqual(finished.returncode, 0, finished.stderr)
+        finished_document = self._load_yaml_text(finished.stdout)
+        self.assertEqual(finished_document["status"], "passed")
+        self.assertEqual(finished_document["pipeline"]["status"], "passed")
+        self.assertEqual(finished_document["sonar_follow_up"]["status"], "pending")
+        self.assertEqual(
+            finished_document["sonar_follow_up"]["steps"]["lidskjalv-original"][
+                "status"
+            ],
+            "pending",
+        )
+        self.assertEqual(
+            finished_document["sonar_follow_up"]["steps"]["lidskjalv-generated"][
+                "status"
+            ],
+            "pending",
+        )
+
     def test_submit_shells_out_over_ssh(self) -> None:
         overrides_path = self.root / "overrides.yaml"
         write_file(overrides_path, "andvari:\n  max_iter: 3\n")

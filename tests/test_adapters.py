@@ -100,6 +100,8 @@ class AdapterTest(unittest.TestCase):
             original_manifest["project_name"], "example/demo-repo (original)"
         )
         self.assertEqual(original_manifest["repo_subdir"], "app")
+        self.assertNotIn("sonar_wait_timeout_sec", original_manifest)
+        self.assertNotIn("sonar_wait_poll_sec", original_manifest)
         self.assertTrue(original.report_path.name.endswith("run_report.json"))
 
 

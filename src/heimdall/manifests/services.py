@@ -86,8 +86,6 @@ def build_step_manifest_payload(
         "project_key": target_config.project_key or defaults[f"{scan_label}_key"],
         "project_name": target_config.project_name or defaults[f"{scan_label}_name"],
         "skip_sonar": context.config.lidskjalv.skip_sonar,
-        "sonar_wait_timeout_sec": context.config.lidskjalv.sonar_wait_timeout_sec,
-        "sonar_wait_poll_sec": context.config.lidskjalv.sonar_wait_poll_sec,
     }
     if target_config.repo_subdir is not None:
         payload["repo_subdir"] = target_config.repo_subdir

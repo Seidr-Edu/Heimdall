@@ -558,8 +558,6 @@ def _kvasir_to_document(config: KvasirConfig) -> dict[str, object]:
 def _lidskjalv_to_document(config: LidskjalvConfig) -> dict[str, object]:
     return {
         "skip_sonar": config.skip_sonar,
-        "sonar_wait_timeout_sec": config.sonar_wait_timeout_sec,
-        "sonar_wait_poll_sec": config.sonar_wait_poll_sec,
         "original": _lidskjalv_target_to_document(config.original),
         "generated": _lidskjalv_target_to_document(config.generated),
     }
