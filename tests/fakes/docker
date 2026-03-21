@@ -392,6 +392,7 @@ def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str
 def _run_lidskjalv(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
     run_root = container.resolve("/run")
     scan_label = str(manifest.get("scan_label", "original"))
+    skip_sonar = bool(manifest.get("skip_sonar", False))
     scan_dir = run_root / "artifacts" / "scans" / scan_label
     (scan_dir / "logs").mkdir(parents=True, exist_ok=True)
     (scan_dir / "metadata").mkdir(parents=True, exist_ok=True)
@@ -399,6 +400,14 @@ def _run_lidskjalv(container: _ContainerMounts, manifest: dict[str, Any], mode: 
     _write_json(scan_dir / "metadata" / "scan-state.json", {"scan_label": scan_label})
     status = "passed"
     reason = None
+    task_id_raw = os.environ.get("FAKE_DOCKER_LIDSKJALV_TASK_ID")
+    sonar_task_id = None
+    if not skip_sonar:
+        sonar_task_id = (
+            task_id_raw if task_id_raw is not None else f"fake-{scan_label}-task"
+        )
+        if sonar_task_id == "":
+            sonar_task_id = None
     if mode == "failed-report":
         status = "failed"
         reason = f"fake-lidskjalv-{scan_label}-failure"
@@ -414,6 +423,15 @@ def _run_lidskjalv(container: _ContainerMounts, manifest: dict[str, Any], mode: 
             "project_key": manifest.get("project_key"),
             "project_name": manifest.get("project_name"),
             "reason": reason,
+            "scan": {
+                "build_tool": "maven",
+                "build_jdk": "21",
+                "sonar_task_id": sonar_task_id,
+                "ce_task_status": None,
+                "quality_gate_status": "skipped" if skip_sonar else None,
+                "data_status": "skipped" if skip_sonar else "pending",
+                "measures": {},
+            },
         },
     )
     _write_summary(run_root / "outputs" / "summary.md", f"Lidskjalv {scan_label}")

@@ -38,6 +38,7 @@ from heimdall.smoke import (
     default_provider_smoke_output_dir,
     run_provider_smoke,
 )
+from heimdall.sonar_follow_up import sonar_worker_loop
 
 _DEFAULT_REMOTE_CLI = "heimdall"
 
@@ -56,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
             return _enqueue_command(args)
         if args.command == "worker":
             return _worker_command(args)
+        if args.command == "sonar-worker":
+            return _sonar_worker_command(args)
         if args.command == "submit":
             return _submit_command(args)
         return _status_command(args)
@@ -114,6 +117,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--once",
         action="store_true",
         help="Process at most one available job and then exit",
+    )
+
+    sonar_worker_parser = subparsers.add_parser(
+        "sonar-worker",
+        help="Poll deferred Sonar results for finished Heimdall runs",
+    )
+    sonar_worker_parser.add_argument("--worker-config", type=Path, required=True)
+    sonar_worker_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Process the current pending Sonar follow-up files once and then exit",
     )
 
     submit_parser = subparsers.add_parser(
@@ -249,6 +263,11 @@ def _worker_command(args: argparse.Namespace) -> int:
         poll_interval_sec=args.poll_interval_sec,
         once=args.once,
     )
+
+
+def _sonar_worker_command(args: argparse.Namespace) -> int:
+    worker_config = load_worker_config(args.worker_config)
+    return sonar_worker_loop(worker_config.runs_root, once=args.once)
 
 
 def _submit_command(args: argparse.Namespace) -> int:

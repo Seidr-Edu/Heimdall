@@ -24,6 +24,7 @@ from heimdall.manifests.queue import (
 )
 from heimdall.models import JobStatus, QueueRequest, RuntimeConfig, WorkerConfig
 from heimdall.simpleyaml import YamlError, dumps, loads
+from heimdall.sonar_follow_up import sonar_follow_up_path
 from heimdall.utils import (
     compact_run_id,
     ensure_directory,
@@ -129,6 +130,10 @@ def load_job_status_document(
             "steps": report.get("steps"),
         }
         document["report_path"] = str(report_path)
+    sonar_path = _sonar_follow_up_path_from_job(document)
+    if sonar_path is not None and sonar_path.is_file():
+        document["sonar_follow_up"] = read_json(sonar_path)
+        document["sonar_follow_up_path"] = str(sonar_path)
     document["request_path"] = str(_request_path(worker_config, job_id))
     document["job_path"] = str(job_path)
     document["pipeline_manifest_path"] = str(
@@ -483,6 +488,13 @@ def _run_report_path_from_job(document: Mapping[str, object]) -> Path | None:
     if run_dir is None:
         return None
     return run_dir / "pipeline" / "outputs" / "run_report.json"
+
+
+def _sonar_follow_up_path_from_job(document: Mapping[str, object]) -> Path | None:
+    run_dir = _job_run_dir(document)
+    if run_dir is None:
+        return None
+    return sonar_follow_up_path(run_dir)
 
 
 def _emit_worker_log(event: str, **fields: object) -> None:

@@ -53,6 +53,11 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         artifact_index = json.loads(
             (run_root / "pipeline" / "artifact_index.json").read_text(encoding="utf-8")
         )
+        sonar_follow_up = json.loads(
+            (run_root / "pipeline" / "outputs" / "sonar_follow_up.json").read_text(
+                encoding="utf-8"
+            )
+        )
         eitri_report = json.loads(
             (
                 run_root / "services" / "eitri" / "run" / "outputs" / "run_report.json"
@@ -69,6 +74,13 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             pipeline_report["steps"]["lidskjalv-generated"]["status"], "passed"
+        )
+        self.assertEqual(sonar_follow_up["status"], "skipped")
+        self.assertEqual(
+            sonar_follow_up["steps"]["lidskjalv-original"]["status"], "skipped"
+        )
+        self.assertEqual(
+            sonar_follow_up["steps"]["lidskjalv-generated"]["status"], "skipped"
         )
         self.assertEqual(eitri_report["status"], "passed")
         self.assertEqual(

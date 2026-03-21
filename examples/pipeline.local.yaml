@@ -35,8 +35,6 @@ kvasir:
 
 lidskjalv:
   skip_sonar: false
-  sonar_wait_timeout_sec: 300
-  sonar_wait_poll_sec: 5
   original:
     project_key: heimdall_mac_java-jwt_original
     project_name: Heimdall mac java-jwt original
