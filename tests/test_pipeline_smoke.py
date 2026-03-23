@@ -115,6 +115,17 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"
             ).is_file()
         )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
+                / "kvasir"
+                / "run"
+                / "artifacts"
+                / "ported-tests-repo"
+                / "README.md"
+            ).is_file()
+        )
         self.assertEqual(
             set(artifact_index["artifacts"]),
             {
@@ -127,6 +138,7 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 "model_diagram",
                 "model_logs",
                 "original_repo",
+                "ported_tests_repo",
                 "source_manifest",
             },
         )
