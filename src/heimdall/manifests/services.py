@@ -10,8 +10,8 @@ from heimdall.models import (
     STEP_BROKK,
     STEP_EITRI,
     STEP_KVASIR,
-    STEP_LIDSKJALV_ORIGINAL,
     STEP_LIDSKJALV_GENERATED,
+    STEP_LIDSKJALV_ORIGINAL,
 )
 from heimdall.utils import read_json
 
@@ -123,16 +123,13 @@ def _derive_scan_defaults(context: AdapterContext) -> dict[str, str]:
     return derive_lidskjalv_defaults(repo_url)
 
 
-def _lidskjalv_build_hint(run_root: Path, *, generated: bool) -> dict[str, object] | None:
+def _lidskjalv_build_hint(
+    run_root: Path, *, generated: bool
+) -> dict[str, object] | None:
     step = STEP_LIDSKJALV_GENERATED if generated else STEP_LIDSKJALV_ORIGINAL
     service_dir = "lidskjalv-generated" if generated else "lidskjalv-original"
     report_path = (
-        run_root
-        / "services"
-        / service_dir
-        / "run"
-        / "outputs"
-        / "run_report.json"
+        run_root / "services" / service_dir / "run" / "outputs" / "run_report.json"
     )
     if not report_path.is_file():
         return None

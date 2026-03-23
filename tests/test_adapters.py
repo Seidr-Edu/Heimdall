@@ -181,7 +181,9 @@ class AdapterTest(unittest.TestCase):
                 (kvasir.config_dir / "build-hints.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(kvasir.env["KVASIR_BUILD_HINTS"], "/run/config/build-hints.json")
+        self.assertEqual(
+            kvasir.env["KVASIR_BUILD_HINTS"], "/run/config/build-hints.json"
+        )
         self.assertEqual(hints["original"]["build_tool"], "maven")
         self.assertEqual(hints["original"]["build_jdk"], "8")
         self.assertEqual(hints["original"]["build_subdir"], "app")
