@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,6 +104,91 @@ class AdapterTest(unittest.TestCase):
         self.assertNotIn("sonar_wait_timeout_sec", original_manifest)
         self.assertNotIn("sonar_wait_poll_sec", original_manifest)
         self.assertTrue(original.report_path.name.endswith("run_report.json"))
+
+    def test_prepare_kvasir_stages_optional_build_hints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "pipeline.yaml"
+            write_file(manifest_path, build_pipeline_manifest())
+            _raw, config = load_pipeline_manifest(manifest_path)
+            brokk_run = root / "run-root" / "services" / "brokk" / "run"
+            (brokk_run / "artifacts" / "original-repo").mkdir(
+                parents=True, exist_ok=True
+            )
+            eitri_model = (
+                root / "run-root" / "services" / "eitri" / "run" / "artifacts" / "model"
+            )
+            eitri_model.mkdir(parents=True, exist_ok=True)
+            write_file(eitri_model / "diagram.puml", "@startuml\n@enduml\n")
+            andvari_generated = (
+                root
+                / "run-root"
+                / "services"
+                / "andvari"
+                / "run"
+                / "artifacts"
+                / "generated-repo"
+            )
+            andvari_generated.mkdir(parents=True, exist_ok=True)
+            write_file(
+                root
+                / "run-root"
+                / "services"
+                / "lidskjalv-original"
+                / "run"
+                / "outputs"
+                / "run_report.json",
+                """
+{
+  "status": "failed",
+  "scan": {
+    "build_tool": "maven",
+    "build_jdk": "8",
+    "build_subdir": "app",
+    "java_version_hint": "6"
+  }
+}
+""".strip()
+                + "\n",
+            )
+            runtime = RuntimeConfig(
+                runs_root=root / "runs",
+                codex_bin_dir=root / "provider" / "bin",
+                codex_host_bin_dir=root / "provider" / "bin",
+                codex_home_dir=root / "provider" / "home",
+                pull_policy="if-missing",
+                sonar_host_url=None,
+                sonar_token_present=False,
+                sonar_organization=None,
+            )
+            runtime.codex_bin_dir.mkdir(parents=True, exist_ok=True)
+            runtime.codex_home_dir.mkdir(parents=True, exist_ok=True)
+            context = AdapterContext(
+                config=config,
+                runtime=runtime,
+                run_root=root / "run-root",
+                resolved_images=ResolvedImages(
+                    brokk="sha256:brokk",
+                    eitri="sha256:eitri",
+                    andvari="sha256:andvari",
+                    kvasir="sha256:kvasir",
+                    lidskjalv="sha256:lidskjalv",
+                ),
+            )
+
+            kvasir = prepare_step("kvasir", context)
+            hints = json.loads(
+                (kvasir.config_dir / "build-hints.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(
+            kvasir.env["KVASIR_BUILD_HINTS"], "/run/config/build-hints.json"
+        )
+        self.assertEqual(hints["original"]["build_tool"], "maven")
+        self.assertEqual(hints["original"]["build_jdk"], "8")
+        self.assertEqual(hints["original"]["build_subdir"], "app")
+        self.assertEqual(hints["original"]["java_version_hint"], "6")
+        self.assertEqual(hints["original"]["source"], "lidskjalv-original")
 
 
 if __name__ == "__main__":
