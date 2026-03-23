@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from heimdall.manifests.services import build_step_manifest_payload
+from heimdall.manifests.services import (
+    build_step_manifest_payload,
+    build_step_runtime_hints,
+)
 from heimdall.models import (
     ALL_STEPS,
     STEP_ANDVARI,
@@ -153,7 +157,10 @@ def prepare_step(
         payload = build_step_manifest_payload(step, context)
         provider_bin_dir = service_root / "input" / "provider-bin"
         provider_seed_dir = service_root / "input" / "provider-seed"
-        env = {"KVASIR_MANIFEST": "/run/config/manifest.yaml"}
+        env = {
+            "KVASIR_MANIFEST": "/run/config/manifest.yaml",
+            "KVASIR_BUILD_HINTS": "/run/config/build-hints.json",
+        }
         mounts = (
             DockerMount(
                 _brokk_original_repo(context.run_root), "/input/original-repo", True
@@ -200,6 +207,13 @@ def prepare_step(
 
     manifest_text = dumps(payload)
     write_text(config_path, manifest_text)
+    if step == STEP_KVASIR:
+        build_hints_path = config_dir / "build-hints.json"
+        build_hints = build_step_runtime_hints(step, context)
+        if build_hints:
+            write_text(build_hints_path, json.dumps(build_hints, indent=2) + "\n")
+        elif build_hints_path.exists():
+            build_hints_path.unlink()
     report_path = run_dir / definition.report_relative_path
     return StepPrepared(
         definition=definition,

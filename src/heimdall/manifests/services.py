@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,7 @@ from heimdall.models import (
     STEP_BROKK,
     STEP_EITRI,
     STEP_KVASIR,
+    STEP_LIDSKJALV_ORIGINAL,
     STEP_LIDSKJALV_GENERATED,
 )
 from heimdall.utils import read_json
@@ -92,6 +94,22 @@ def build_step_manifest_payload(
     return payload
 
 
+def build_step_runtime_hints(
+    step: str, context: AdapterContext
+) -> dict[str, object] | None:
+    if step != STEP_KVASIR:
+        return None
+
+    hints: dict[str, object] = {}
+    original = _lidskjalv_build_hint(context.run_root, generated=False)
+    if original:
+        hints["original"] = original
+    generated = _lidskjalv_build_hint(context.run_root, generated=True)
+    if generated:
+        hints["generated"] = generated
+    return hints or None
+
+
 def brokk_source_manifest(run_root: Path) -> Path:
     return run_root / "services" / "brokk" / "run" / "inputs" / "source-manifest.json"
 
@@ -103,3 +121,46 @@ def _derive_scan_defaults(context: AdapterContext) -> dict[str, str]:
         source_manifest = read_json(source_manifest_path)
         repo_url = str(source_manifest.get("repo_url", repo_url))
     return derive_lidskjalv_defaults(repo_url)
+
+
+def _lidskjalv_build_hint(run_root: Path, *, generated: bool) -> dict[str, object] | None:
+    step = STEP_LIDSKJALV_GENERATED if generated else STEP_LIDSKJALV_ORIGINAL
+    service_dir = "lidskjalv-generated" if generated else "lidskjalv-original"
+    report_path = (
+        run_root
+        / "services"
+        / service_dir
+        / "run"
+        / "outputs"
+        / "run_report.json"
+    )
+    if not report_path.is_file():
+        return None
+
+    try:
+        report = read_json(report_path)
+    except Exception:
+        return None
+
+    scan = report.get("scan")
+    if not isinstance(scan, Mapping):
+        return None
+
+    hint: dict[str, object] = {}
+    for field_name in ("build_tool", "build_jdk", "build_subdir", "java_version_hint"):
+        value = _optional_hint_str(scan.get(field_name))
+        if value is not None:
+            hint[field_name] = value
+
+    if not hint:
+        return None
+
+    hint["source"] = step
+    return hint
+
+
+def _optional_hint_str(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
