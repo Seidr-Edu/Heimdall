@@ -364,7 +364,10 @@ def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: st
 def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
     run_root = container.resolve("/run")
     outputs_dir = run_root / "outputs"
+    ported_repo = run_root / "artifacts" / "ported-tests-repo"
     outputs_dir.mkdir(parents=True, exist_ok=True)
+    ported_repo.mkdir(parents=True, exist_ok=True)
+    (ported_repo / "README.md").write_text("ported repo\n", encoding="utf-8")
     status = "passed"
     behavioral_verdict = "pass"
     reason = None
@@ -385,6 +388,9 @@ def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str
             "behavioral_verdict": behavioral_verdict,
             "reason": reason,
             "run_id": manifest.get("run_id"),
+            "artifacts": {
+                "ported_repo": "/run/artifacts/ported-tests-repo",
+            },
         },
     )
 

@@ -308,6 +308,11 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
             )
     elif step == STEP_KVASIR:
         records["kvasir_report"] = ArtifactRecord(owner=step, path=str(report_path))
+        ported_repo = run_dir / "artifacts" / "ported-tests-repo"
+        if ported_repo.exists():
+            records["ported_tests_repo"] = ArtifactRecord(
+                owner=step, path=str(ported_repo)
+            )
     elif step == STEP_LIDSKJALV_ORIGINAL:
         records["lidskjalv_original_report"] = ArtifactRecord(
             owner=step, path=str(report_path)

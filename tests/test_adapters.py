@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from heimdall.adapters import AdapterContext, prepare_step, step_definitions
+from heimdall.adapters import (
+    AdapterContext,
+    classify_report,
+    prepare_step,
+    step_definitions,
+)
 from heimdall.manifests.pipeline import load_pipeline_manifest
 from heimdall.models import ResolvedImages, RuntimeConfig
 from heimdall.simpleyaml import loads
@@ -189,6 +194,32 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(hints["original"]["build_subdir"], "app")
         self.assertEqual(hints["original"]["java_version_hint"], "6")
         self.assertEqual(hints["original"]["source"], "lidskjalv-original")
+
+    def test_classify_kvasir_records_promoted_ported_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "services" / "kvasir" / "run"
+            report_path = run_dir / "outputs" / "test_port.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            write_file(
+                report_path,
+                """
+{
+  "status": "passed",
+  "behavioral_verdict": "pass"
+}
+""".strip()
+                + "\n",
+            )
+            promoted_repo = run_dir / "artifacts" / "ported-tests-repo"
+            promoted_repo.mkdir(parents=True, exist_ok=True)
+
+            status, reason, artifacts = classify_report("kvasir", report_path)
+
+        self.assertEqual(status, "passed")
+        self.assertIsNone(reason)
+        self.assertIn("kvasir_report", artifacts)
+        self.assertIn("ported_tests_repo", artifacts)
 
 
 if __name__ == "__main__":
