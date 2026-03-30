@@ -21,6 +21,9 @@ class AdapterTest(unittest.TestCase):
     def test_andvari_depends_only_on_eitri(self) -> None:
         self.assertEqual(step_definitions()["andvari"].depends_on, ("eitri",))
 
+    def test_generated_eitri_depends_on_andvari(self) -> None:
+        self.assertEqual(step_definitions()["eitri-generated"].depends_on, ("andvari",))
+
     def test_prepare_eitri_and_lidskjalv_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -135,6 +138,7 @@ class AdapterTest(unittest.TestCase):
                 / "generated-repo"
             )
             andvari_generated.mkdir(parents=True, exist_ok=True)
+            write_file(andvari_generated / "README.md", "generated\n")
             write_file(
                 root
                 / "run-root"
@@ -182,6 +186,7 @@ class AdapterTest(unittest.TestCase):
             )
 
             kvasir = prepare_step("kvasir", context)
+            generated_eitri = prepare_step("eitri-generated", context)
             hints = json.loads(
                 (kvasir.config_dir / "build-hints.json").read_text(encoding="utf-8")
             )
@@ -194,6 +199,17 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(hints["original"]["build_subdir"], "app")
         self.assertEqual(hints["original"]["java_version_hint"], "6")
         self.assertEqual(hints["original"]["source"], "lidskjalv-original")
+        self.assertEqual(
+            [
+                (str(mount.host_path), mount.container_path, mount.read_only)
+                for mount in generated_eitri.mounts
+            ][0],
+            (
+                str(andvari_generated),
+                "/input/repo",
+                True,
+            ),
+        )
 
     def test_classify_kvasir_records_promoted_ported_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

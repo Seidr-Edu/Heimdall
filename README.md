@@ -264,7 +264,7 @@ python3 -m heimdall.cli run /abs/path/pipeline.yaml \
 
 ## Public manifest
 
-See [examples/pipeline.example.yaml](/Users/oleremidahl/Documents/Master/Heimdall/examples/pipeline.example.yaml).
+See [examples/pipeline.example.yaml](./examples/pipeline.example.yaml).
 
 Key rules:
 

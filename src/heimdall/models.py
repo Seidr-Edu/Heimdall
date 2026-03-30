@@ -12,6 +12,7 @@ JobStatus = Literal["pending", "running", "passed", "failed", "error"]
 
 STEP_BROKK = "brokk"
 STEP_EITRI = "eitri"
+STEP_EITRI_GENERATED = "eitri-generated"
 STEP_ANDVARI = "andvari"
 STEP_KVASIR = "kvasir"
 STEP_LIDSKJALV_ORIGINAL = "lidskjalv-original"
@@ -22,6 +23,7 @@ ALL_STEPS = (
     STEP_EITRI,
     STEP_LIDSKJALV_ORIGINAL,
     STEP_ANDVARI,
+    STEP_EITRI_GENERATED,
     STEP_KVASIR,
     STEP_LIDSKJALV_GENERATED,
 )
