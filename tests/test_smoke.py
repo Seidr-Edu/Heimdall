@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -306,7 +307,7 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = fake_env(self.bin_dir, self.state_path, extra=extra_env)
         return subprocess.run(
-            ["python3", "-m", "heimdall.cli", *args],
+            [sys.executable, "-m", "heimdall.cli", *args],
             check=False,
             capture_output=True,
             text=True,

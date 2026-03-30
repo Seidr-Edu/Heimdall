@@ -140,7 +140,7 @@ def _handle_run(args: list[str]) -> int:
         return _run_provider_smoke(container, env_vars, mode)
     if step == "brokk":
         _run_brokk(container, manifest, mode)
-    elif step == "eitri":
+    elif step in {"eitri", "eitri-generated"}:
         _run_eitri(container, manifest, mode)
     elif step == "andvari":
         _run_andvari(container, manifest, mode)
