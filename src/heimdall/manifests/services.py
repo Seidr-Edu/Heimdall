@@ -9,6 +9,7 @@ from heimdall.models import (
     STEP_ANDVARI,
     STEP_BROKK,
     STEP_EITRI,
+    STEP_EITRI_GENERATED,
     STEP_KVASIR,
     STEP_LIDSKJALV_GENERATED,
     STEP_LIDSKJALV_ORIGINAL,
@@ -29,7 +30,7 @@ def build_step_manifest_payload(
             "repo_url": context.config.source.repo_url,
             "commit_sha": context.config.source.commit_sha,
         }
-    if step == STEP_EITRI:
+    if step in {STEP_EITRI, STEP_EITRI_GENERATED}:
         payload: dict[str, object] = {
             "version": 1,
             "run_id": context.config.run_id,

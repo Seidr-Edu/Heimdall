@@ -37,6 +37,7 @@ def write_run_outputs(
     run_id: str,
     steps: dict[str, StepState],
     artifacts: dict[str, ArtifactRecord],
+    repository_stats: dict[str, object],
     started_at: str,
     finished_at: str,
 ) -> None:
@@ -69,6 +70,8 @@ def write_run_outputs(
             for key, artifact in sorted(artifacts.items())
         },
     }
+    if repository_stats:
+        document["repository_stats"] = repository_stats
     write_text(report_path, json.dumps(document, indent=2) + "\n")
     write_text(summary_path, _render_summary(document))
 
@@ -115,5 +118,28 @@ def _render_summary(document: Mapping[str, object]) -> str:
         lines.append(
             f"| {step} | {state.get('status', '')} | {state.get('report_status', '') or ''} | {state.get('reason', '') or ''} |"
         )
+    repository_stats = document.get("repository_stats")
+    if isinstance(repository_stats, dict) and repository_stats:
+        lines.extend(
+            [
+                "",
+                "## Repository Stats",
+                "",
+                "| Snapshot | Source Files | Packages | Types | Classes | Interfaces | Records | Enums | Annotations |",
+                "|----------|--------------|----------|-------|---------|------------|---------|-------|-------------|",
+            ]
+        )
+        for label, stats in repository_stats.items():
+            if not isinstance(stats, dict):
+                continue
+            type_kind_counts = stats.get("type_kind_counts", {})
+            if not isinstance(type_kind_counts, dict):
+                type_kind_counts = {}
+            lines.append(
+                f"| {label} | {stats.get('source_file_count', '')} | {stats.get('package_count', '')} | "
+                f"{stats.get('type_count', '')} | {type_kind_counts.get('class', '')} | "
+                f"{type_kind_counts.get('interface', '')} | {type_kind_counts.get('record', '')} | "
+                f"{type_kind_counts.get('enum', '')} | {type_kind_counts.get('annotation', '')} |"
+            )
     lines.append("")
     return "\n".join(lines)

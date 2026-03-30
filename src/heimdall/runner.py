@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
@@ -17,6 +18,8 @@ from heimdall.adapters import (
 from heimdall.images import run_container
 from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
+    STEP_EITRI,
+    STEP_EITRI_GENERATED,
     PipelineConfig,
     ResolvedImages,
     RuntimeConfig,
@@ -98,12 +101,46 @@ def run_pipeline(
         config.run_id,
         steps_snapshot,
         artifacts_snapshot,
+        _collect_repository_stats(steps_snapshot),
         started_at,
         finished_at,
     )
     sync_sonar_follow_up(run_root, config.run_id, steps_snapshot)
     _emit(context.runtime, f"finished run {config.run_id}")
     return run_root
+
+
+def _collect_repository_stats(steps: dict[str, StepState]) -> dict[str, object]:
+    aliases = (
+        ("original", STEP_EITRI),
+        ("andvari_generated", STEP_EITRI_GENERATED),
+        ("lidskjalv_original_input", STEP_EITRI),
+        ("lidskjalv_generated_input", STEP_EITRI_GENERATED),
+    )
+    repository_stats: dict[str, object] = {}
+    for label, step in aliases:
+        state = steps.get(step)
+        if (
+            state is None
+            or state.report_path is None
+            or state.report_status != "passed"
+        ):
+            continue
+        report_path = Path(state.report_path)
+        if not report_path.is_file():
+            continue
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        stats = report.get("repository_stats")
+        if not isinstance(stats, dict):
+            continue
+        entry = dict(stats)
+        entry["source_step"] = step
+        entry["report_path"] = str(report_path)
+        repository_stats[label] = entry
+    return repository_stats
 
 
 def _run_scheduler(

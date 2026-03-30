@@ -14,6 +14,7 @@ from heimdall.models import (
     STEP_ANDVARI,
     STEP_BROKK,
     STEP_EITRI,
+    STEP_EITRI_GENERATED,
     STEP_KVASIR,
     STEP_LIDSKJALV_GENERATED,
     STEP_LIDSKJALV_ORIGINAL,
@@ -50,6 +51,12 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
         name=STEP_EITRI,
         depends_on=(STEP_BROKK,),
         service_dir_name="eitri",
+        report_relative_path="outputs/run_report.json",
+    ),
+    STEP_EITRI_GENERATED: StepDefinition(
+        name=STEP_EITRI_GENERATED,
+        depends_on=(STEP_ANDVARI,),
+        service_dir_name="eitri-generated",
         report_relative_path="outputs/run_report.json",
     ),
     STEP_LIDSKJALV_ORIGINAL: StepDefinition(
@@ -118,11 +125,16 @@ def prepare_step(
         )
         image_ref = context.config.images.brokk
         resolved_image_id = context.resolved_images.brokk
-    elif step == STEP_EITRI:
+    elif step in {STEP_EITRI, STEP_EITRI_GENERATED}:
         payload = build_step_manifest_payload(step, context)
         env = {"EITRI_MANIFEST": "/run/config/manifest.yaml"}
+        input_repo = (
+            _brokk_original_repo(context.run_root)
+            if step == STEP_EITRI
+            else _andvari_generated_repo(context.run_root)
+        )
         mounts = (
-            DockerMount(_brokk_original_repo(context.run_root), "/input/repo", True),
+            DockerMount(input_repo, "/input/repo", True),
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
         )
@@ -288,10 +300,31 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
     elif step == STEP_EITRI:
         diagram = run_dir / "artifacts" / "model" / "diagram.puml"
         logs_dir = run_dir / "artifacts" / "model" / "logs"
+        repository_stats = run_dir / "artifacts" / "model" / "repository_stats.json"
         if diagram.exists():
             records["model_diagram"] = ArtifactRecord(owner=step, path=str(diagram))
         if logs_dir.exists():
             records["model_logs"] = ArtifactRecord(owner=step, path=str(logs_dir))
+        if repository_stats.exists():
+            records["model_repository_stats"] = ArtifactRecord(
+                owner=step, path=str(repository_stats)
+            )
+    elif step == STEP_EITRI_GENERATED:
+        diagram = run_dir / "artifacts" / "model" / "diagram.puml"
+        logs_dir = run_dir / "artifacts" / "model" / "logs"
+        repository_stats = run_dir / "artifacts" / "model" / "repository_stats.json"
+        if diagram.exists():
+            records["generated_model_diagram"] = ArtifactRecord(
+                owner=step, path=str(diagram)
+            )
+        if logs_dir.exists():
+            records["generated_model_logs"] = ArtifactRecord(
+                owner=step, path=str(logs_dir)
+            )
+        if repository_stats.exists():
+            records["generated_model_repository_stats"] = ArtifactRecord(
+                owner=step, path=str(repository_stats)
+            )
     elif step == STEP_ANDVARI:
         generated_repo = run_dir / "artifacts" / "generated-repo"
         logs_dir = run_dir / "artifacts" / "andvari" / "logs"
