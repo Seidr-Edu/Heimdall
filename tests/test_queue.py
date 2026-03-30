@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -501,7 +502,7 @@ class QueueIntegrationTest(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = fake_env(self.bin_dir, self.state_path, extra=extra_env)
         return subprocess.run(
-            ["python3", "-m", "heimdall.cli", *args],
+            [sys.executable, "-m", "heimdall.cli", *args],
             check=False,
             capture_output=True,
             text=True,

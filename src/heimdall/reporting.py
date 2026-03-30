@@ -43,7 +43,7 @@ def write_run_outputs(
 ) -> None:
     overall_status = _overall_status(steps)
     reason = _overall_reason(steps)
-    document = {
+    document: dict[str, object] = {
         "schema_version": "heimdall_run_report.v1",
         "run_id": run_id,
         "status": overall_status,
