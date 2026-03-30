@@ -38,6 +38,7 @@ def write_run_outputs(
     steps: dict[str, StepState],
     artifacts: dict[str, ArtifactRecord],
     repository_stats: dict[str, object],
+    diagram_comparisons: dict[str, object],
     started_at: str,
     finished_at: str,
 ) -> None:
@@ -72,6 +73,8 @@ def write_run_outputs(
     }
     if repository_stats:
         document["repository_stats"] = repository_stats
+    if diagram_comparisons:
+        document["diagram_comparisons"] = diagram_comparisons
     write_text(report_path, json.dumps(document, indent=2) + "\n")
     write_text(summary_path, _render_summary(document))
 
@@ -140,6 +143,23 @@ def _render_summary(document: Mapping[str, object]) -> str:
                 f"{stats.get('type_count', '')} | {type_kind_counts.get('class', '')} | "
                 f"{type_kind_counts.get('interface', '')} | {type_kind_counts.get('record', '')} | "
                 f"{type_kind_counts.get('enum', '')} | {type_kind_counts.get('annotation', '')} |"
+            )
+    diagram_comparisons = document.get("diagram_comparisons")
+    if isinstance(diagram_comparisons, dict) and diagram_comparisons:
+        lines.extend(
+            [
+                "",
+                "## Diagram Comparisons",
+                "",
+                "| Label | Exact | Fuzzy |",
+                "|-------|-------|-------|",
+            ]
+        )
+        for label, comparison in diagram_comparisons.items():
+            if not isinstance(comparison, dict):
+                continue
+            lines.append(
+                f"| {label} | {comparison.get('exact_similarity', '')} | {comparison.get('fuzzy_similarity', '')} |"
             )
     lines.append("")
     return "\n".join(lines)

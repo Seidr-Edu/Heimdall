@@ -8,6 +8,7 @@ from pathlib import Path
 from heimdall.manifests.services import (
     build_step_manifest_payload,
     build_step_runtime_hints,
+    mimir_snapshot_sources,
 )
 from heimdall.models import (
     ALL_STEPS,
@@ -18,6 +19,7 @@ from heimdall.models import (
     STEP_KVASIR,
     STEP_LIDSKJALV_GENERATED,
     STEP_LIDSKJALV_ORIGINAL,
+    STEP_MIMIR,
     ArtifactRecord,
     DockerMount,
     PipelineConfig,
@@ -69,6 +71,12 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
         name=STEP_ANDVARI,
         depends_on=(STEP_EITRI,),
         service_dir_name="andvari",
+        report_relative_path="outputs/run_report.json",
+    ),
+    STEP_MIMIR: StepDefinition(
+        name=STEP_MIMIR,
+        depends_on=(STEP_EITRI, STEP_EITRI_GENERATED),
+        service_dir_name="mimir",
         report_relative_path="outputs/run_report.json",
     ),
     STEP_KVASIR: StepDefinition(
@@ -192,6 +200,24 @@ def prepare_step(
         provider_bin_dest = provider_bin_dir
         provider_seed_source = context.runtime.codex_home_dir
         provider_seed_dest = provider_seed_dir
+    elif step == STEP_MIMIR:
+        payload = build_step_manifest_payload(step, context)
+        input_snapshots_dir = service_root / "input" / "snapshots"
+        ensure_directory(input_snapshots_dir, 0o755)
+        if stage_inputs:
+            for label, source_path in mimir_snapshot_sources(context.run_root).items():
+                destination = input_snapshots_dir / label / "model_snapshot.json"
+                ensure_directory(destination.parent, 0o755)
+                shutil.copy2(source_path, destination)
+                destination.chmod(0o644)
+        env = {"MIMIR_MANIFEST": "/run/config/manifest.yaml"}
+        mounts = (
+            DockerMount(input_snapshots_dir, "/input/snapshots", True),
+            DockerMount(config_dir, "/run/config", True),
+            DockerMount(run_dir, "/run", False),
+        )
+        image_ref = context.config.images.mimir
+        resolved_image_id = context.resolved_images.mimir
     else:
         generated = step == STEP_LIDSKJALV_GENERATED
         payload = build_step_manifest_payload(step, context)
@@ -299,10 +325,15 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
             )
     elif step == STEP_EITRI:
         diagram = run_dir / "artifacts" / "model" / "diagram.puml"
+        model_snapshot = run_dir / "artifacts" / "model" / "model_snapshot.json"
         logs_dir = run_dir / "artifacts" / "model" / "logs"
         repository_stats = run_dir / "artifacts" / "model" / "repository_stats.json"
         if diagram.exists():
             records["model_diagram"] = ArtifactRecord(owner=step, path=str(diagram))
+        if model_snapshot.exists():
+            records["model_snapshot"] = ArtifactRecord(
+                owner=step, path=str(model_snapshot)
+            )
         if logs_dir.exists():
             records["model_logs"] = ArtifactRecord(owner=step, path=str(logs_dir))
         if repository_stats.exists():
@@ -311,11 +342,16 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
             )
     elif step == STEP_EITRI_GENERATED:
         diagram = run_dir / "artifacts" / "model" / "diagram.puml"
+        model_snapshot = run_dir / "artifacts" / "model" / "model_snapshot.json"
         logs_dir = run_dir / "artifacts" / "model" / "logs"
         repository_stats = run_dir / "artifacts" / "model" / "repository_stats.json"
         if diagram.exists():
             records["generated_model_diagram"] = ArtifactRecord(
                 owner=step, path=str(diagram)
+            )
+        if model_snapshot.exists():
+            records["generated_model_snapshot"] = ArtifactRecord(
+                owner=step, path=str(model_snapshot)
             )
         if logs_dir.exists():
             records["generated_model_logs"] = ArtifactRecord(
@@ -339,6 +375,21 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
             records["andvari_report_dir"] = ArtifactRecord(
                 owner=step, path=str(report_dir)
             )
+    elif step == STEP_MIMIR:
+        records["mimir_report"] = ArtifactRecord(owner=step, path=str(report_path))
+        comparison_dir = run_dir / "artifacts" / "comparisons"
+        if comparison_dir.exists():
+            aggregate_path = comparison_dir / "aggregate.json"
+            if aggregate_path.exists():
+                records["diagram_comparison_aggregate"] = ArtifactRecord(
+                    owner=step, path=str(aggregate_path)
+                )
+            for artifact_path in sorted(comparison_dir.glob("*.json")):
+                if artifact_path.name == "aggregate.json":
+                    continue
+                records[f"diagram_comparison_{artifact_path.stem}"] = ArtifactRecord(
+                    owner=step, path=str(artifact_path)
+                )
     elif step == STEP_KVASIR:
         records["kvasir_report"] = ArtifactRecord(owner=step, path=str(report_path))
         ported_repo = run_dir / "artifacts" / "ported-tests-repo"

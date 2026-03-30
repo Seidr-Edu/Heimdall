@@ -28,6 +28,7 @@ def build_pipeline_manifest(
         "brokk": "fake/brokk:1",
         "eitri": "fake/eitri:1",
         "andvari": "fake/andvari:1",
+        "mimir": "fake/mimir:1",
         "kvasir": "fake/kvasir:1",
         "lidskjalv": "fake/lidskjalv:1",
     }
@@ -104,6 +105,7 @@ def build_worker_config(
             "brokk": "fake/brokk:1",
             "eitri": "fake/eitri:1",
             "andvari": "fake/andvari:1",
+            "mimir": "fake/mimir:1",
             "kvasir": "fake/kvasir:1",
             "lidskjalv": "fake/lidskjalv:1",
         },

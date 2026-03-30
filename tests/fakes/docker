@@ -144,6 +144,8 @@ def _handle_run(args: list[str]) -> int:
         _run_eitri(container, manifest, mode)
     elif step == "andvari":
         _run_andvari(container, manifest, mode)
+    elif step == "mimir":
+        _run_mimir(container, manifest, mode)
     elif step == "kvasir":
         _run_kvasir(container, manifest, mode)
     elif step in {"lidskjalv-original", "lidskjalv-generated"}:
@@ -181,7 +183,14 @@ def _parse_mount(spec: str) -> dict[str, Any]:
 
 
 def _load_manifest(container: _ContainerMounts, env_vars: dict[str, str]) -> dict[str, Any]:
-    for key in ("BROKK_MANIFEST", "EITRI_MANIFEST", "ANDVARI_MANIFEST", "KVASIR_MANIFEST", "LIDSKJALV_MANIFEST"):
+    for key in (
+        "BROKK_MANIFEST",
+        "EITRI_MANIFEST",
+        "ANDVARI_MANIFEST",
+        "MIMIR_MANIFEST",
+        "KVASIR_MANIFEST",
+        "LIDSKJALV_MANIFEST",
+    ):
         if key in env_vars:
             manifest_path = env_vars[key]
             break
@@ -206,6 +215,8 @@ def _infer_step(
         return "eitri"
     if "andvari" in lowered:
         return "andvari"
+    if "mimir" in lowered:
+        return "mimir"
     if "kvasir" in lowered:
         return "kvasir"
     if "lidskjalv" in lowered:
@@ -298,8 +309,72 @@ def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
     logs_dir = model_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     diagram_path = model_dir / "diagram.puml"
+    snapshot_path = model_dir / "model_snapshot.json"
     repository_stats_path = model_dir / "repository_stats.json"
     diagram_path.write_text("@startuml\nclass Demo\n@enduml\n", encoding="utf-8")
+    _write_json(
+        snapshot_path,
+        {
+            "schema_version": "uml_model_snapshot.v1",
+            "model_name": "diagram",
+            "packages": ["demo.api", "demo.model"],
+            "types": [
+                {
+                    "fqn": "demo.api.Demo",
+                    "simple_name": "Demo",
+                    "package_name": "demo.api",
+                    "kind": "class",
+                    "visibility": "public",
+                    "outer_type_fqn": None,
+                    "generics": [],
+                },
+                {
+                    "fqn": "demo.model.Record",
+                    "simple_name": "Record",
+                    "package_name": "demo.model",
+                    "kind": "record",
+                    "visibility": "public",
+                    "outer_type_fqn": None,
+                    "generics": [],
+                },
+            ],
+            "fields": [
+                {
+                    "owner_fqn": "demo.api.Demo",
+                    "name": "record",
+                    "type": "demo.model.Record",
+                    "visibility": "private",
+                    "modifiers": [],
+                    "read_only": False,
+                }
+            ],
+            "methods": [
+                {
+                    "owner_fqn": "demo.api.Demo",
+                    "name": "load",
+                    "parameter_types": [],
+                    "return_type": "demo.model.Record",
+                    "visibility": "public",
+                    "modifiers": [],
+                    "constructor": False,
+                    "thrown_exceptions": [],
+                    "generic_arity": 0,
+                }
+            ],
+            "relations": [
+                {
+                    "kind": "association",
+                    "from_type_fqn": "demo.api.Demo",
+                    "to_type_fqn": "demo.model.Record",
+                    "from_member": None,
+                    "to_member": None,
+                    "label": "record",
+                    "from_multiplicity": None,
+                    "to_multiplicity": None,
+                }
+            ],
+        },
+    )
     _write_json(
         repository_stats_path,
         {
@@ -341,6 +416,7 @@ def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
             },
             "artifacts": {
                 "diagram_path": "/run/artifacts/model/diagram.puml",
+                "model_snapshot_path": "/run/artifacts/model/model_snapshot.json",
                 "repository_stats_path": "/run/artifacts/model/repository_stats.json",
             },
             "type_count": 3,
@@ -389,6 +465,97 @@ def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: st
         },
     )
     _write_summary(run_root / "outputs" / "summary.md", "Andvari")
+
+
+def _run_mimir(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
+    run_root = container.resolve("/run")
+    comparisons_dir = run_root / "artifacts" / "comparisons"
+    comparisons_dir.mkdir(parents=True, exist_ok=True)
+    diagram_comparisons: dict[str, Any] = {}
+    for candidate in manifest.get("candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        label = str(candidate.get("label", "candidate"))
+        artifact_path = comparisons_dir / f"{label}.json"
+        payload = {
+            "schema_version": "uml_model_diff.v1",
+            "baseline_label": manifest.get("baseline_label", "original"),
+            "candidate_label": label,
+            "exact_similarity": 1.0 if mode == "pass" else 0.5,
+            "fuzzy_similarity": 1.0 if mode == "pass" else 0.75,
+            "component_scores": {
+                "exact": {
+                    "packages": 1.0,
+                    "types": 1.0,
+                    "fields": 1.0,
+                    "methods": 1.0,
+                    "relations": 1.0,
+                },
+                "fuzzy": {
+                    "matched_type_coverage": 1.0,
+                    "field_preservation": 1.0,
+                    "method_preservation": 1.0,
+                    "relation_preservation": 1.0,
+                    "name_package_retention": 1.0,
+                },
+            },
+            "diff_counts": {
+                "missing_packages": 0,
+                "added_packages": 0,
+                "missing_types": 0,
+                "added_types": 0,
+                "likely_renamed_or_moved_types": 0,
+                "missing_fields": 0,
+                "added_fields": 0,
+                "changed_fields": 0,
+                "missing_methods": 0,
+                "added_methods": 0,
+                "changed_methods": 0,
+                "missing_relations": 0,
+                "added_relations": 0,
+                "changed_relations": 0,
+            },
+            "package_diff": {"missing": [], "added": []},
+            "type_diff": {"missing": [], "added": [], "likely_renamed_or_moved": []},
+            "field_diff": {"missing": [], "added": [], "changed": []},
+            "method_diff": {"missing": [], "added": [], "changed": []},
+            "relation_diff": {"missing": [], "added": [], "changed": []},
+            "top_mismatches": [],
+        }
+        _write_json(artifact_path, payload)
+        diagram_comparisons[label] = {
+            "exact_similarity": payload["exact_similarity"],
+            "fuzzy_similarity": payload["fuzzy_similarity"],
+            "component_scores": payload["component_scores"],
+            "diff_counts": payload["diff_counts"],
+            "artifact_path": str(artifact_path),
+        }
+    _write_json(
+        comparisons_dir / "aggregate.json",
+        {
+            "schema_version": "uml_model_comparison_aggregate.v1",
+            "run_id": manifest.get("run_id"),
+            "baseline_label": manifest.get("baseline_label"),
+            "comparisons": diagram_comparisons,
+        },
+    )
+    _write_json(
+        run_root / "outputs" / "run_report.json",
+        {
+            "status": "passed" if mode == "pass" else "failed",
+            "run_id": manifest.get("run_id"),
+            "reason": None if mode == "pass" else "fake-mimir-failure",
+            "mode": manifest.get("mode"),
+            "comparison_count": len(diagram_comparisons),
+            "diagram_comparisons": diagram_comparisons,
+            "artifacts": {
+                "comparison_dir": "/run/artifacts/comparisons",
+                "aggregate_path": "/run/artifacts/comparisons/aggregate.json",
+                "logs_dir": "/run/artifacts/mimir/logs",
+            },
+        },
+    )
+    _write_summary(run_root / "outputs" / "summary.md", "Mimir")
 
 
 def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:

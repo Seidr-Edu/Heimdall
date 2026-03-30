@@ -99,6 +99,7 @@ def build_pipeline_manifest_for_job(
             "brokk": worker_config.images.brokk,
             "eitri": worker_config.images.eitri,
             "andvari": worker_config.images.andvari,
+            "mimir": worker_config.images.mimir,
             "kvasir": worker_config.images.kvasir,
             "lidskjalv": worker_config.images.lidskjalv,
         },
@@ -246,12 +247,13 @@ def _parse_queue_request_mapping(data: dict[str, object]) -> QueueRequest:
 
 def _parse_images_config(data: dict[str, object], path: str) -> ImageRefs:
     pipeline_mod._reject_unknown_keys(
-        data, {"brokk", "eitri", "andvari", "kvasir", "lidskjalv"}, path
+        data, {"brokk", "eitri", "andvari", "mimir", "kvasir", "lidskjalv"}, path
     )
     return ImageRefs(
         brokk=pipeline_mod._require_str(data, "brokk", path),
         eitri=pipeline_mod._require_str(data, "eitri", path),
         andvari=pipeline_mod._require_str(data, "andvari", path),
+        mimir=pipeline_mod._require_str(data, "mimir", path),
         kvasir=pipeline_mod._require_str(data, "kvasir", path),
         lidskjalv=pipeline_mod._require_str(data, "lidskjalv", path),
     )

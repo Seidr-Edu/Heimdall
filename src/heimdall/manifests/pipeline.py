@@ -71,6 +71,7 @@ def pipeline_to_document(config: PipelineConfig) -> dict[str, object]:
             "brokk": config.images.brokk,
             "eitri": config.images.eitri,
             "andvari": config.images.andvari,
+            "mimir": config.images.mimir,
             "kvasir": config.images.kvasir,
             "lidskjalv": config.images.lidskjalv,
         },
@@ -180,12 +181,15 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
 
     images_data = _require_mapping(data, "images", "root")
     _reject_unknown_keys(
-        images_data, {"brokk", "eitri", "andvari", "kvasir", "lidskjalv"}, "images"
+        images_data,
+        {"brokk", "eitri", "andvari", "mimir", "kvasir", "lidskjalv"},
+        "images",
     )
     images = ImageRefs(
         brokk=_require_str(images_data, "brokk", "images"),
         eitri=_require_str(images_data, "eitri", "images"),
         andvari=_require_str(images_data, "andvari", "images"),
+        mimir=_require_str(images_data, "mimir", "images"),
         kvasir=_require_str(images_data, "kvasir", "images"),
         lidskjalv=_require_str(images_data, "lidskjalv", "images"),
     )

@@ -14,6 +14,7 @@ STEP_BROKK = "brokk"
 STEP_EITRI = "eitri"
 STEP_EITRI_GENERATED = "eitri-generated"
 STEP_ANDVARI = "andvari"
+STEP_MIMIR = "mimir"
 STEP_KVASIR = "kvasir"
 STEP_LIDSKJALV_ORIGINAL = "lidskjalv-original"
 STEP_LIDSKJALV_GENERATED = "lidskjalv-generated"
@@ -24,6 +25,7 @@ ALL_STEPS = (
     STEP_LIDSKJALV_ORIGINAL,
     STEP_ANDVARI,
     STEP_EITRI_GENERATED,
+    STEP_MIMIR,
     STEP_KVASIR,
     STEP_LIDSKJALV_GENERATED,
 )
@@ -40,6 +42,7 @@ class ImageRefs:
     brokk: str
     eitri: str
     andvari: str
+    mimir: str
     kvasir: str
     lidskjalv: str
 
@@ -49,6 +52,7 @@ class ResolvedImages:
     brokk: str
     eitri: str
     andvari: str
+    mimir: str
     kvasir: str
     lidskjalv: str
 

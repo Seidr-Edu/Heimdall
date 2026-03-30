@@ -59,6 +59,7 @@ class AdapterTest(unittest.TestCase):
                     brokk="sha256:brokk",
                     eitri="sha256:eitri",
                     andvari="sha256:andvari",
+                    mimir="sha256:mimir",
                     kvasir="sha256:kvasir",
                     lidskjalv="sha256:lidskjalv",
                 ),
@@ -180,6 +181,7 @@ class AdapterTest(unittest.TestCase):
                     brokk="sha256:brokk",
                     eitri="sha256:eitri",
                     andvari="sha256:andvari",
+                    mimir="sha256:mimir",
                     kvasir="sha256:kvasir",
                     lidskjalv="sha256:lidskjalv",
                 ),
@@ -236,6 +238,95 @@ class AdapterTest(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertIn("kvasir_report", artifacts)
         self.assertIn("ported_tests_repo", artifacts)
+
+    def test_prepare_mimir_manifest_and_mounts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "pipeline.yaml"
+            write_file(manifest_path, build_pipeline_manifest())
+            _raw, config = load_pipeline_manifest(manifest_path)
+            original_snapshot = (
+                root
+                / "run-root"
+                / "services"
+                / "eitri"
+                / "run"
+                / "artifacts"
+                / "model"
+                / "model_snapshot.json"
+            )
+            generated_snapshot = (
+                root
+                / "run-root"
+                / "services"
+                / "eitri-generated"
+                / "run"
+                / "artifacts"
+                / "model"
+                / "model_snapshot.json"
+            )
+            write_file(
+                original_snapshot, '{"schema_version":"uml_model_snapshot.v1"}\n'
+            )
+            write_file(
+                generated_snapshot, '{"schema_version":"uml_model_snapshot.v1"}\n'
+            )
+            runtime = RuntimeConfig(
+                runs_root=root / "runs",
+                codex_bin_dir=root / "provider" / "bin",
+                codex_host_bin_dir=root / "provider" / "bin",
+                codex_home_dir=root / "provider" / "home",
+                pull_policy="if-missing",
+                sonar_host_url=None,
+                sonar_token_present=False,
+                sonar_organization=None,
+            )
+            runtime.codex_bin_dir.mkdir(parents=True, exist_ok=True)
+            runtime.codex_home_dir.mkdir(parents=True, exist_ok=True)
+            context = AdapterContext(
+                config=config,
+                runtime=runtime,
+                run_root=root / "run-root",
+                resolved_images=ResolvedImages(
+                    brokk="sha256:brokk",
+                    eitri="sha256:eitri",
+                    andvari="sha256:andvari",
+                    mimir="sha256:mimir",
+                    kvasir="sha256:kvasir",
+                    lidskjalv="sha256:lidskjalv",
+                ),
+            )
+
+            mimir = prepare_step("mimir", context)
+
+        mimir_manifest = loads(mimir.manifest_text)
+        self.assertEqual(mimir_manifest["baseline_label"], "original")
+        self.assertEqual(
+            mimir_manifest["baseline_snapshot_relpath"], "original/model_snapshot.json"
+        )
+        self.assertEqual(mimir_manifest["candidates"][0]["label"], "andvari_generated")
+        self.assertEqual(mimir.env["MIMIR_MANIFEST"], "/run/config/manifest.yaml")
+        self.assertEqual(
+            [
+                (str(mount.host_path), mount.container_path, mount.read_only)
+                for mount in mimir.mounts
+            ],
+            [
+                (
+                    str(
+                        context.run_root / "services" / "mimir" / "input" / "snapshots"
+                    ),
+                    "/input/snapshots",
+                    True,
+                ),
+                (
+                    str(context.run_root / "services" / "mimir" / "config"),
+                    "/run/config",
+                    True,
+                ),
+                (str(context.run_root / "services" / "mimir" / "run"), "/run", False),
+            ],
+        )
 
 
 if __name__ == "__main__":

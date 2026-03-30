@@ -72,6 +72,7 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         self.assertEqual(
             pipeline_report["steps"]["eitri-generated"]["status"], "passed"
         )
+        self.assertEqual(pipeline_report["steps"]["mimir"]["status"], "passed")
         self.assertEqual(pipeline_report["steps"]["kvasir"]["status"], "passed")
         self.assertEqual(
             pipeline_report["steps"]["lidskjalv-original"]["status"], "passed"
@@ -96,8 +97,18 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             "/run/artifacts/model/repository_stats.json",
         )
         self.assertEqual(
+            eitri_report["artifacts"]["model_snapshot_path"],
+            "/run/artifacts/model/model_snapshot.json",
+        )
+        self.assertEqual(
             pipeline_report["repository_stats"]["andvari_generated"]["source_step"],
             "eitri-generated",
+        )
+        self.assertEqual(
+            pipeline_report["diagram_comparisons"]["andvari_generated"][
+                "exact_similarity"
+            ],
+            1.0,
         )
 
         self.assertTrue(
@@ -109,6 +120,28 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 / "artifacts"
                 / "model"
                 / "diagram.puml"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
+                / "eitri-generated"
+                / "run"
+                / "artifacts"
+                / "model"
+                / "model_snapshot.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
+                / "mimir"
+                / "run"
+                / "artifacts"
+                / "comparisons"
+                / "andvari_generated.json"
             ).is_file()
         )
         self.assertTrue(
@@ -158,12 +191,17 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 "generated_model_diagram",
                 "generated_model_logs",
                 "generated_model_repository_stats",
+                "generated_model_snapshot",
+                "diagram_comparison_aggregate",
+                "diagram_comparison_andvari_generated",
                 "kvasir_report",
                 "lidskjalv_generated_report",
                 "lidskjalv_original_report",
                 "model_diagram",
                 "model_logs",
                 "model_repository_stats",
+                "model_snapshot",
+                "mimir_report",
                 "original_repo",
                 "ported_tests_repo",
                 "source_manifest",
@@ -180,6 +218,9 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         self.assertLess(run_by_step["eitri"]["seq"], run_by_step["andvari"]["seq"])
         self.assertLess(
             run_by_step["andvari"]["seq"], run_by_step["eitri-generated"]["seq"]
+        )
+        self.assertLess(
+            run_by_step["eitri-generated"]["seq"], run_by_step["mimir"]["seq"]
         )
         self.assertLess(run_by_step["andvari"]["seq"], run_by_step["kvasir"]["seq"])
         self.assertLess(
