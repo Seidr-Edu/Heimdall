@@ -23,6 +23,7 @@ def resolve_images(
         brokk=resolve_image(images.brokk, pull_policy, verbose=verbose),
         eitri=resolve_image(images.eitri, pull_policy, verbose=verbose),
         andvari=resolve_image(images.andvari, pull_policy, verbose=verbose),
+        mimir=resolve_image(images.mimir, pull_policy, verbose=verbose),
         kvasir=resolve_image(images.kvasir, pull_policy, verbose=verbose),
         lidskjalv=resolve_image(images.lidskjalv, pull_policy, verbose=verbose),
     )
@@ -37,6 +38,10 @@ def image_id_map(
         "andvari": {
             "configured_ref": images.andvari,
             "resolved_image_id": resolved.andvari,
+        },
+        "mimir": {
+            "configured_ref": images.mimir,
+            "resolved_image_id": resolved.mimir,
         },
         "kvasir": {
             "configured_ref": images.kvasir,

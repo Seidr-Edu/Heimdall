@@ -108,11 +108,11 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
 
         runs = load_fake_state(self.state_path)["runs"]
-        rerun_steps = [entry["step"] for entry in runs[-4:]]
+        rerun_steps = [entry["step"] for entry in runs[-5:]]
         self.assertEqual(rerun_steps[0], "andvari")
         self.assertEqual(
             set(rerun_steps[1:]),
-            {"eitri-generated", "kvasir", "lidskjalv-generated"},
+            {"eitri-generated", "mimir", "kvasir", "lidskjalv-generated"},
         )
 
     def test_missing_report_marks_step_error_and_blocks_downstream(self) -> None:
@@ -141,6 +141,7 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["eitri"]["reason"], "missing-canonical-report")
         self.assertEqual(report["steps"]["andvari"]["status"], "blocked")
         self.assertEqual(report["steps"]["eitri-generated"]["status"], "blocked")
+        self.assertEqual(report["steps"]["mimir"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
 
     def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:

@@ -13,6 +13,7 @@ from heimdall.models import (
     STEP_KVASIR,
     STEP_LIDSKJALV_GENERATED,
     STEP_LIDSKJALV_ORIGINAL,
+    STEP_MIMIR,
 )
 from heimdall.utils import read_json
 
@@ -73,6 +74,42 @@ def build_step_manifest_payload(
                 context.config.kvasir.write_scope_ignore_prefixes
             )
         return payload
+    if step == STEP_MIMIR:
+        snapshot_sources = mimir_snapshot_sources(context.run_root)
+        if "original" not in snapshot_sources:
+            return {
+                "version": 1,
+                "run_id": context.config.run_id,
+                "mode": "analytics",
+                "baseline_label": "original",
+                "baseline_snapshot_relpath": "original/model_snapshot.json",
+                "candidates": [
+                    {
+                        "label": "andvari_generated",
+                        "snapshot_relpath": "andvari_generated/model_snapshot.json",
+                    }
+                ],
+            }
+        candidates = [
+            {"label": label, "snapshot_relpath": f"{label}/model_snapshot.json"}
+            for label in snapshot_sources
+            if label != "original"
+        ]
+        if not candidates:
+            candidates = [
+                {
+                    "label": "andvari_generated",
+                    "snapshot_relpath": "andvari_generated/model_snapshot.json",
+                }
+            ]
+        return {
+            "version": 1,
+            "run_id": context.config.run_id,
+            "mode": "analytics",
+            "baseline_label": "original",
+            "baseline_snapshot_relpath": "original/model_snapshot.json",
+            "candidates": candidates,
+        }
 
     generated = step == STEP_LIDSKJALV_GENERATED
     defaults = _derive_scan_defaults(context)
@@ -113,6 +150,50 @@ def build_step_runtime_hints(
 
 def brokk_source_manifest(run_root: Path) -> Path:
     return run_root / "services" / "brokk" / "run" / "inputs" / "source-manifest.json"
+
+
+def mimir_snapshot_sources(run_root: Path) -> dict[str, Path]:
+    sources: dict[str, Path] = {}
+    original = (
+        run_root
+        / "services"
+        / "eitri"
+        / "run"
+        / "artifacts"
+        / "model"
+        / "model_snapshot.json"
+    )
+    if original.is_file():
+        sources["original"] = original
+
+    generated = (
+        run_root
+        / "services"
+        / "eitri-generated"
+        / "run"
+        / "artifacts"
+        / "model"
+        / "model_snapshot.json"
+    )
+    if generated.is_file():
+        sources["andvari_generated"] = generated
+
+    services_root = run_root / "services"
+    if services_root.is_dir():
+        for service_dir in sorted(services_root.iterdir()):
+            if not service_dir.is_dir():
+                continue
+            name = service_dir.name
+            if not name.startswith("eitri-") or name == "eitri-generated":
+                continue
+            snapshot = (
+                service_dir / "run" / "artifacts" / "model" / "model_snapshot.json"
+            )
+            if not snapshot.is_file():
+                continue
+            label = name.removeprefix("eitri-").replace("-", "_")
+            sources.setdefault(label, snapshot)
+    return dict(sorted(sources.items()))
 
 
 def _derive_scan_defaults(context: AdapterContext) -> dict[str, str]:

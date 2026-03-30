@@ -20,6 +20,7 @@ from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
     STEP_EITRI,
     STEP_EITRI_GENERATED,
+    STEP_MIMIR,
     PipelineConfig,
     ResolvedImages,
     RuntimeConfig,
@@ -102,6 +103,7 @@ def run_pipeline(
         steps_snapshot,
         artifacts_snapshot,
         _collect_repository_stats(steps_snapshot),
+        _collect_diagram_comparisons(steps_snapshot),
         started_at,
         finished_at,
     )
@@ -141,6 +143,21 @@ def _collect_repository_stats(steps: dict[str, StepState]) -> dict[str, object]:
         entry["report_path"] = str(report_path)
         repository_stats[label] = entry
     return repository_stats
+
+
+def _collect_diagram_comparisons(steps: dict[str, StepState]) -> dict[str, object]:
+    state = steps.get(STEP_MIMIR)
+    if state is None or state.report_path is None or state.report_status != "passed":
+        return {}
+    report_path = Path(state.report_path)
+    if not report_path.is_file():
+        return {}
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    comparisons = report.get("diagram_comparisons")
+    return dict(comparisons) if isinstance(comparisons, dict) else {}
 
 
 def _run_scheduler(
@@ -456,6 +473,10 @@ def _write_resolved(
             "andvari": {
                 "configured_ref": config.images.andvari,
                 "resolved_image_id": resolved_images.andvari,
+            },
+            "mimir": {
+                "configured_ref": config.images.mimir,
+                "resolved_image_id": resolved_images.mimir,
             },
             "kvasir": {
                 "configured_ref": config.images.kvasir,

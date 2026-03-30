@@ -29,6 +29,7 @@ class ManifestTest(unittest.TestCase):
             config.kvasir.write_scope_ignore_prefixes, ("completion/proof/logs", ".m2")
         )
         self.assertTrue(config.eitri.writers["plantuml"]["hidePrivate"])
+        self.assertEqual(config.images.mimir, "fake/mimir:1")
         self.assertEqual(config.lidskjalv.sonar_wait_timeout_sec, 300)
         self.assertEqual(config.lidskjalv.sonar_wait_poll_sec, 5)
 
