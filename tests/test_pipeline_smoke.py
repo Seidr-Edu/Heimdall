@@ -224,7 +224,22 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         )
         self.assertLess(run_by_step["andvari"]["seq"], run_by_step["kvasir"]["seq"])
         self.assertLess(
-            run_by_step["andvari"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
+            run_by_step["kvasir"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
+        )
+        lidskjalv_generated_mounts = {
+            mount["container"]: Path(mount["host"])
+            for mount in run_by_step["lidskjalv-generated"]["mounts"]
+        }
+        self.assertEqual(
+            lidskjalv_generated_mounts["/input/repo"].resolve(),
+            (
+                run_root
+                / "services"
+                / "kvasir"
+                / "run"
+                / "artifacts"
+                / "ported-tests-repo"
+            ).resolve(),
         )
         for entry in runs:
             mount_hosts = {Path(mount["host"]) for mount in entry["mounts"]}

@@ -24,6 +24,9 @@ class AdapterTest(unittest.TestCase):
     def test_generated_eitri_depends_on_andvari(self) -> None:
         self.assertEqual(step_definitions()["eitri-generated"].depends_on, ("andvari",))
 
+    def test_generated_lidskjalv_depends_on_kvasir(self) -> None:
+        self.assertEqual(step_definitions()["lidskjalv-generated"].depends_on, ("kvasir",))
+
     def test_prepare_eitri_and_lidskjalv_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -211,6 +214,75 @@ class AdapterTest(unittest.TestCase):
                 "/input/repo",
                 True,
             ),
+        )
+
+    def test_prepare_generated_lidskjalv_mounts_kvasir_ported_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "pipeline.yaml"
+            write_file(manifest_path, build_pipeline_manifest())
+            _raw, config = load_pipeline_manifest(manifest_path)
+            brokk_run = root / "run-root" / "services" / "brokk" / "run"
+            (brokk_run / "artifacts" / "original-repo").mkdir(
+                parents=True, exist_ok=True
+            )
+            ported_repo = (
+                root
+                / "run-root"
+                / "services"
+                / "kvasir"
+                / "run"
+                / "artifacts"
+                / "ported-tests-repo"
+            )
+            ported_repo.mkdir(parents=True, exist_ok=True)
+            write_file(ported_repo / "README.md", "ported\n")
+            runtime = RuntimeConfig(
+                runs_root=root / "runs",
+                codex_bin_dir=root / "provider" / "bin",
+                codex_host_bin_dir=root / "provider" / "bin",
+                codex_home_dir=root / "provider" / "home",
+                pull_policy="if-missing",
+                sonar_host_url=None,
+                sonar_token_present=False,
+                sonar_organization=None,
+            )
+            runtime.codex_bin_dir.mkdir(parents=True, exist_ok=True)
+            runtime.codex_home_dir.mkdir(parents=True, exist_ok=True)
+            context = AdapterContext(
+                config=config,
+                runtime=runtime,
+                run_root=root / "run-root",
+                resolved_images=ResolvedImages(
+                    brokk="sha256:brokk",
+                    eitri="sha256:eitri",
+                    andvari="sha256:andvari",
+                    mimir="sha256:mimir",
+                    kvasir="sha256:kvasir",
+                    lidskjalv="sha256:lidskjalv",
+                ),
+            )
+
+            generated = prepare_step("lidskjalv-generated", context)
+
+        self.assertEqual(
+            [
+                (str(mount.host_path), mount.container_path, mount.read_only)
+                for mount in generated.mounts
+            ],
+            [
+                (str(ported_repo), "/input/repo", True),
+                (
+                    str(context.run_root / "services" / "lidskjalv-generated" / "config"),
+                    "/run/config",
+                    True,
+                ),
+                (
+                    str(context.run_root / "services" / "lidskjalv-generated" / "run"),
+                    "/run",
+                    False,
+                ),
+            ],
         )
 
     def test_classify_kvasir_records_promoted_ported_repo(self) -> None:

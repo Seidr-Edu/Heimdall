@@ -5,11 +5,12 @@ Heimdall is the host-side orchestrator for the fixed pipeline graph:
 1. `Brokk`
 2. then in parallel: `Eitri`, `Lidskjalv(original)`
 3. then `Andvari`
-4. then in parallel: `Eitri(generated)`, `Kvasir`, `Lidskjalv(generated)`
-5. then `Mimir` compares the original and generated Eitri snapshots
+4. then in parallel: `Eitri(generated)`, `Kvasir`
+5. then `Lidskjalv(generated)` scans Kvasir's finished repo with ported tests
+6. then `Mimir` compares the original and generated Eitri snapshots
 
-`Kvasir` and `Lidskjalv(generated)` fan out after `Andvari`; they do not wait
-for `Mimir`.
+`Kvasir` fans out after `Andvari`, `Lidskjalv(generated)` waits for Kvasir's
+ported-tests artifact, and neither step waits for `Mimir`.
 
 It uses the Docker CLI through `subprocess`, renders one service-specific
 manifest per step, stores run state under `runs/<run_id>/`, and branches on
