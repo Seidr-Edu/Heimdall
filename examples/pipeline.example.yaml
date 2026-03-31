@@ -12,6 +12,7 @@ images:
   brokk: ghcr.io/seidr-edu/brokk@sha256:REPLACE_ME
   eitri: eitri:local
   andvari: ghcr.io/seidr-edu/andvari@sha256:REPLACE_ME
+  mimir: ghcr.io/seidr-edu/mimir@sha256:REPLACE_ME
   kvasir: ghcr.io/seidr-edu/kvasir@sha256:REPLACE_ME
   lidskjalv: ghcr.io/seidr-edu/lidskjalv@sha256:REPLACE_ME
 

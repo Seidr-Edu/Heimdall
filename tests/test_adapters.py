@@ -305,6 +305,10 @@ class AdapterTest(unittest.TestCase):
             mimir_manifest["baseline_snapshot_relpath"], "original/model_snapshot.json"
         )
         self.assertEqual(mimir_manifest["candidates"][0]["label"], "andvari_generated")
+        self.assertEqual(
+            mimir_manifest["candidates"][0]["snapshot_relpath"],
+            "andvari_generated/model_snapshot.json",
+        )
         self.assertEqual(mimir.env["MIMIR_MANIFEST"], "/run/config/manifest.yaml")
         self.assertEqual(
             [
@@ -312,13 +316,6 @@ class AdapterTest(unittest.TestCase):
                 for mount in mimir.mounts
             ],
             [
-                (
-                    str(
-                        context.run_root / "services" / "mimir" / "input" / "snapshots"
-                    ),
-                    "/input/snapshots",
-                    True,
-                ),
                 (
                     str(context.run_root / "services" / "mimir" / "config"),
                     "/run/config",
