@@ -75,8 +75,14 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(resumed_report["status"], "passed")
         self.assertEqual(resumed_report["steps"]["brokk"]["status"], "skipped")
         self.assertEqual(resumed_report["steps"]["kvasir"]["status"], "passed")
+        self.assertEqual(
+            resumed_report["steps"]["lidskjalv-generated"]["status"], "passed"
+        )
         runs = load_fake_state(self.state_path)["runs"]
-        self.assertEqual([entry["step"] for entry in runs[-1:]], ["kvasir"])
+        self.assertEqual(
+            [entry["step"] for entry in runs[-2:]],
+            ["kvasir", "lidskjalv-generated"],
+        )
 
     def test_resume_invalidates_downstream_on_image_change(self) -> None:
         first = self._run_cli(
@@ -143,6 +149,7 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["eitri-generated"]["status"], "blocked")
         self.assertEqual(report["steps"]["mimir"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
+        self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "blocked")
 
     def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)

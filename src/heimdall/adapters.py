@@ -87,7 +87,7 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
     ),
     STEP_LIDSKJALV_GENERATED: StepDefinition(
         name=STEP_LIDSKJALV_GENERATED,
-        depends_on=(STEP_ANDVARI,),
+        depends_on=(STEP_KVASIR,),
         service_dir_name="lidskjalv-generated",
         report_relative_path="outputs/run_report.json",
     ),
@@ -230,7 +230,7 @@ def prepare_step(
             if context.runtime.sonar_organization is not None:
                 env["SONAR_ORGANIZATION"] = context.runtime.sonar_organization
         input_repo = (
-            _andvari_generated_repo(context.run_root)
+            _kvasir_ported_tests_repo(context.run_root)
             if generated
             else _brokk_original_repo(context.run_root)
         )
@@ -433,6 +433,10 @@ def _eitri_model_dir(run_root: Path) -> Path:
 
 def _andvari_generated_repo(run_root: Path) -> Path:
     return run_root / "services" / "andvari" / "run" / "artifacts" / "generated-repo"
+
+
+def _kvasir_ported_tests_repo(run_root: Path) -> Path:
+    return run_root / "services" / "kvasir" / "run" / "artifacts" / "ported-tests-repo"
 
 
 def _sonar_token() -> str | None:
