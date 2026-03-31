@@ -25,7 +25,9 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(step_definitions()["eitri-generated"].depends_on, ("andvari",))
 
     def test_generated_lidskjalv_depends_on_kvasir(self) -> None:
-        self.assertEqual(step_definitions()["lidskjalv-generated"].depends_on, ("kvasir",))
+        self.assertEqual(
+            step_definitions()["lidskjalv-generated"].depends_on, ("kvasir",)
+        )
 
     def test_prepare_eitri_and_lidskjalv_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -273,7 +275,9 @@ class AdapterTest(unittest.TestCase):
             [
                 (str(ported_repo), "/input/repo", True),
                 (
-                    str(context.run_root / "services" / "lidskjalv-generated" / "config"),
+                    str(
+                        context.run_root / "services" / "lidskjalv-generated" / "config"
+                    ),
                     "/run/config",
                     True,
                 ),
