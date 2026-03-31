@@ -5,7 +5,11 @@ Heimdall is the host-side orchestrator for the fixed pipeline graph:
 1. `Brokk`
 2. then in parallel: `Eitri`, `Lidskjalv(original)`
 3. then `Andvari`
-4. then in parallel: `Kvasir`, `Lidskjalv(generated)`
+4. then in parallel: `Eitri(generated)`, `Kvasir`, `Lidskjalv(generated)`
+5. then `Mimir` compares the original and generated Eitri snapshots
+
+`Kvasir` and `Lidskjalv(generated)` fan out after `Andvari`; they do not wait
+for `Mimir`.
 
 It uses the Docker CLI through `subprocess`, renders one service-specific
 manifest per step, stores run state under `runs/<run_id>/`, and branches on
@@ -273,6 +277,7 @@ Key rules:
 - `source.commit_sha` must be a full 40-character lowercase SHA
 - `images.*` accept any Docker image ref string, but production manifests should
   use immutable digests
+- `images.mimir` is required and points to the Mimir comparison image
 - no public `provider.*` host-path block is allowed
 - do not put secrets such as `SONAR_TOKEN` in the manifest
 - unknown top-level keys are rejected
@@ -295,6 +300,11 @@ Each run is written under `runs/<run_id>/`:
 
 Service `run/` directories are created with mode `0777` so the service images
 can write as `uid=10001` on both local hosts and the `munin` VPS user.
+
+Pipeline reports may now include top-level `repository_stats` and
+`diagram_comparisons`. The artifact index may include `model_snapshot`,
+`generated_model_snapshot`, `mimir_report`, and `diagram_comparison_*` entries
+when those artifacts are produced by the run.
 
 With `--verbose`, Heimdall prints preflight progress, step start/finish events,
 and streams each container's combined stdout/stderr to the terminal with a step

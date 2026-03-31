@@ -202,7 +202,7 @@ def prepare_step(
         provider_seed_dest = provider_seed_dir
     elif step == STEP_MIMIR:
         payload = build_step_manifest_payload(step, context)
-        input_snapshots_dir = service_root / "input" / "snapshots"
+        input_snapshots_dir = run_dir / "inputs" / "snapshots"
         ensure_directory(input_snapshots_dir, 0o755)
         if stage_inputs:
             for label, source_path in mimir_snapshot_sources(context.run_root).items():
@@ -212,7 +212,6 @@ def prepare_step(
                 destination.chmod(0o644)
         env = {"MIMIR_MANIFEST": "/run/config/manifest.yaml"}
         mounts = (
-            DockerMount(input_snapshots_dir, "/input/snapshots", True),
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
         )

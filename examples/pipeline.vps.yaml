@@ -10,8 +10,9 @@ source:
 
 images:
   brokk: ghcr.io/seidr-edu/brokk:v1.0.0
-  eitri: ghcr.io/seidr-edu/eitri:v1.9.0
+  eitri: ghcr.io/seidr-edu/eitri:v1.11.0
   andvari: ghcr.io/seidr-edu/andvari:v1.0.2
+  mimir: ghcr.io/seidr-edu/mimir:v1.0.0
   kvasir: ghcr.io/seidr-edu/kvasir:v1.0.2
   lidskjalv: ghcr.io/seidr-edu/lidskjalv:v1.1.1
 
