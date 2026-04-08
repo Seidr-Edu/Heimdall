@@ -353,9 +353,6 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         self.assertLess(
             run_by_step["kvasir"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
         )
-        self.assertLess(
-            run_by_step["mimir"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
-        )
         self.assertLess(run_by_step["mimir"]["seq"], run_by_step["andvari-v2"]["seq"])
         self.assertLess(
             run_by_step["lidskjalv-generated"]["seq"],

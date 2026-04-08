@@ -239,26 +239,7 @@ def _service_name_from_mounts(mounts: list[dict[str, Any]]) -> str | None:
             if part != "services":
                 continue
             service = parts[index + 1]
-            if service in {
-                "brokk",
-                "eitri",
-                "lidskjalv-original",
-                "andvari",
-                "andvari-v2",
-                "andvari-v3",
-                "eitri-generated",
-                "eitri-generated-v2",
-                "eitri-generated-v3",
-                "mimir",
-                "mimir-v2",
-                "mimir-v3",
-                "kvasir",
-                "kvasir-v2",
-                "kvasir-v3",
-                "lidskjalv-generated",
-                "lidskjalv-generated-v2",
-                "lidskjalv-generated-v3",
-            }:
+            if service and service not in {".", ".."}:
                 return service
     return None
 
