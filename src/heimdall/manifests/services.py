@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -7,18 +8,43 @@ from typing import TYPE_CHECKING
 from heimdall.manifests.pipeline import derive_lidskjalv_defaults
 from heimdall.models import (
     STEP_ANDVARI,
+    STEP_ANDVARI_V2,
+    STEP_ANDVARI_V3,
     STEP_BROKK,
     STEP_EITRI,
     STEP_EITRI_GENERATED,
+    STEP_EITRI_GENERATED_V2,
+    STEP_EITRI_GENERATED_V3,
     STEP_KVASIR,
+    STEP_KVASIR_V2,
+    STEP_KVASIR_V3,
     STEP_LIDSKJALV_GENERATED,
+    STEP_LIDSKJALV_GENERATED_V2,
+    STEP_LIDSKJALV_GENERATED_V3,
     STEP_LIDSKJALV_ORIGINAL,
     STEP_MIMIR,
+    STEP_MIMIR_V2,
+    STEP_MIMIR_V3,
 )
 from heimdall.utils import read_json
 
 if TYPE_CHECKING:
     from heimdall.adapters import AdapterContext
+
+
+ANDVARI_STEPS = (STEP_ANDVARI, STEP_ANDVARI_V2, STEP_ANDVARI_V3)
+EITRI_GENERATED_STEPS = (
+    STEP_EITRI_GENERATED,
+    STEP_EITRI_GENERATED_V2,
+    STEP_EITRI_GENERATED_V3,
+)
+KVASIR_STEPS = (STEP_KVASIR, STEP_KVASIR_V2, STEP_KVASIR_V3)
+MIMIR_STEPS = (STEP_MIMIR, STEP_MIMIR_V2, STEP_MIMIR_V3)
+LIDSKJALV_GENERATED_STEPS = (
+    STEP_LIDSKJALV_GENERATED,
+    STEP_LIDSKJALV_GENERATED_V2,
+    STEP_LIDSKJALV_GENERATED_V3,
+)
 
 
 def build_step_manifest_payload(
@@ -31,7 +57,7 @@ def build_step_manifest_payload(
             "repo_url": context.config.source.repo_url,
             "commit_sha": context.config.source.commit_sha,
         }
-    if step in {STEP_EITRI, STEP_EITRI_GENERATED}:
+    if step in {STEP_EITRI, *EITRI_GENERATED_STEPS}:
         payload: dict[str, object] = {
             "version": 1,
             "run_id": context.config.run_id,
@@ -43,10 +69,13 @@ def build_step_manifest_payload(
             payload["writer_extension"] = context.config.eitri.writer_extension
         if context.config.eitri.verbose:
             payload["verbose"] = True
-        if context.config.eitri.writers:
-            payload["writers"] = context.config.eitri.writers
+        writers: Mapping[str, object] = context.config.eitri.writers
+        if step in EITRI_GENERATED_STEPS:
+            payload["writers"] = _generated_eitri_writers(writers)
+        elif writers:
+            payload["writers"] = dict(writers)
         return payload
-    if step == STEP_ANDVARI:
+    if step in ANDVARI_STEPS:
         return {
             "version": 1,
             "run_id": context.config.run_id,
@@ -57,7 +86,7 @@ def build_step_manifest_payload(
             "model_gate_timeout_sec": context.config.andvari.model_gate_timeout_sec,
             "diagram_relpath": "diagram.puml",
         }
-    if step == STEP_KVASIR:
+    if step in KVASIR_STEPS:
         payload = {
             "version": 1,
             "run_id": context.config.run_id,
@@ -74,57 +103,52 @@ def build_step_manifest_payload(
                 context.config.kvasir.write_scope_ignore_prefixes
             )
         return payload
-    if step == STEP_MIMIR:
-        snapshot_sources = mimir_snapshot_sources(context.run_root)
-        if "original" not in snapshot_sources:
-            return {
-                "version": 1,
-                "run_id": context.config.run_id,
-                "mode": "analytics",
-                "baseline_label": "original",
-                "baseline_snapshot_relpath": "original/model_snapshot.json",
-                "candidates": [
-                    {
-                        "label": "andvari_generated",
-                        "snapshot_relpath": "andvari_generated/model_snapshot.json",
-                    }
-                ],
-            }
+    if step in MIMIR_STEPS:
+        diagram_sources = mimir_diagram_sources(step, context.run_root)
+        candidate_label = _mimir_candidate_label(step)
         candidates = [
-            {"label": label, "snapshot_relpath": f"{label}/model_snapshot.json"}
-            for label in snapshot_sources
+            {"label": label, "diagram_relpath": f"{label}/diagram.puml"}
+            for label in diagram_sources
             if label != "original"
         ]
         if not candidates:
             candidates = [
                 {
-                    "label": "andvari_generated",
-                    "snapshot_relpath": "andvari_generated/model_snapshot.json",
+                    "label": candidate_label,
+                    "diagram_relpath": f"{candidate_label}/diagram.puml",
                 }
             ]
         return {
             "version": 1,
             "run_id": context.config.run_id,
-            "mode": "analytics",
+            "mode": "diagram",
             "baseline_label": "original",
-            "baseline_snapshot_relpath": "original/model_snapshot.json",
+            "baseline_diagram_relpath": "original/diagram.puml",
             "candidates": candidates,
         }
 
-    generated = step == STEP_LIDSKJALV_GENERATED
+    generated = step in LIDSKJALV_GENERATED_STEPS
     defaults = _derive_scan_defaults(context)
     target_config = (
         context.config.lidskjalv.generated
         if generated
         else context.config.lidskjalv.original
     )
-    scan_label = "generated" if generated else "original"
+    scan_label = _lidskjalv_scan_label(step) if generated else "original"
     payload = {
         "version": 1,
         "run_id": context.config.run_id,
         "scan_label": scan_label,
-        "project_key": target_config.project_key or defaults[f"{scan_label}_key"],
-        "project_name": target_config.project_name or defaults[f"{scan_label}_name"],
+        "project_key": _lidskjalv_project_key(
+            target_config.project_key, defaults["generated_key"], step
+        )
+        if generated
+        else target_config.project_key or defaults["original_key"],
+        "project_name": _lidskjalv_project_name(
+            target_config.project_name, defaults["generated_name"], step
+        )
+        if generated
+        else target_config.project_name or defaults["original_name"],
         "skip_sonar": context.config.lidskjalv.skip_sonar,
     }
     if target_config.repo_subdir is not None:
@@ -135,14 +159,16 @@ def build_step_manifest_payload(
 def build_step_runtime_hints(
     step: str, context: AdapterContext
 ) -> dict[str, object] | None:
-    if step != STEP_KVASIR:
+    if step not in KVASIR_STEPS:
         return None
 
     hints: dict[str, object] = {}
-    original = _lidskjalv_build_hint(context.run_root, generated=False)
+    original = _lidskjalv_build_hint(context.run_root, STEP_LIDSKJALV_ORIGINAL)
     if original:
         hints["original"] = original
-    generated = _lidskjalv_build_hint(context.run_root, generated=True)
+    generated = _lidskjalv_build_hint(
+        context.run_root, _lidskjalv_generated_step_for_kvasir_step(step)
+    )
     if generated:
         hints["generated"] = generated
     return hints or None
@@ -152,47 +178,26 @@ def brokk_source_manifest(run_root: Path) -> Path:
     return run_root / "services" / "brokk" / "run" / "inputs" / "source-manifest.json"
 
 
-def mimir_snapshot_sources(run_root: Path) -> dict[str, Path]:
+def mimir_diagram_sources(step: str, run_root: Path) -> dict[str, Path]:
     sources: dict[str, Path] = {}
     original = (
-        run_root
-        / "services"
-        / "eitri"
-        / "run"
-        / "artifacts"
-        / "model"
-        / "model_snapshot.json"
+        run_root / "services" / "eitri" / "run" / "artifacts" / "model" / "diagram.puml"
     )
     if original.is_file():
         sources["original"] = original
 
+    candidate_label = _mimir_candidate_label(step)
     generated = (
         run_root
         / "services"
-        / "eitri-generated"
+        / _eitri_generated_service_for_mimir_step(step)
         / "run"
         / "artifacts"
         / "model"
-        / "model_snapshot.json"
+        / "diagram.puml"
     )
     if generated.is_file():
-        sources["andvari_generated"] = generated
-
-    services_root = run_root / "services"
-    if services_root.is_dir():
-        for service_dir in sorted(services_root.iterdir()):
-            if not service_dir.is_dir():
-                continue
-            name = service_dir.name
-            if not name.startswith("eitri-") or name == "eitri-generated":
-                continue
-            snapshot = (
-                service_dir / "run" / "artifacts" / "model" / "model_snapshot.json"
-            )
-            if not snapshot.is_file():
-                continue
-            label = name.removeprefix("eitri-").replace("-", "_")
-            sources.setdefault(label, snapshot)
+        sources[candidate_label] = generated
     return dict(sorted(sources.items()))
 
 
@@ -205,11 +210,8 @@ def _derive_scan_defaults(context: AdapterContext) -> dict[str, str]:
     return derive_lidskjalv_defaults(repo_url)
 
 
-def _lidskjalv_build_hint(
-    run_root: Path, *, generated: bool
-) -> dict[str, object] | None:
-    step = STEP_LIDSKJALV_GENERATED if generated else STEP_LIDSKJALV_ORIGINAL
-    service_dir = "lidskjalv-generated" if generated else "lidskjalv-original"
+def _lidskjalv_build_hint(run_root: Path, step: str) -> dict[str, object] | None:
+    service_dir = _service_dir_for_step(step)
     report_path = (
         run_root / "services" / service_dir / "run" / "outputs" / "run_report.json"
     )
@@ -236,6 +238,72 @@ def _lidskjalv_build_hint(
 
     hint["source"] = step
     return hint
+
+
+def _branch_suffix(step: str) -> str:
+    if step.endswith("-v2"):
+        return "v2"
+    if step.endswith("-v3"):
+        return "v3"
+    return ""
+
+
+def _mimir_candidate_label(step: str) -> str:
+    suffix = _branch_suffix(step)
+    return "andvari_generated" if not suffix else f"andvari_generated_{suffix}"
+
+
+def _eitri_generated_service_for_mimir_step(step: str) -> str:
+    suffix = _branch_suffix(step)
+    return "eitri-generated" if not suffix else f"eitri-generated-{suffix}"
+
+
+def _lidskjalv_generated_step_for_kvasir_step(step: str) -> str:
+    suffix = _branch_suffix(step)
+    if suffix == "v2":
+        return STEP_LIDSKJALV_GENERATED_V2
+    if suffix == "v3":
+        return STEP_LIDSKJALV_GENERATED_V3
+    return STEP_LIDSKJALV_GENERATED
+
+
+def _lidskjalv_scan_label(step: str) -> str:
+    suffix = _branch_suffix(step)
+    return "generated" if not suffix else f"generated-{suffix}"
+
+
+def _lidskjalv_project_key(configured: str | None, default: str, step: str) -> str:
+    suffix = _branch_suffix(step)
+    base = configured or default
+    return base if not suffix else f"{base}_{suffix}"
+
+
+def _lidskjalv_project_name(configured: str | None, default: str, step: str) -> str:
+    suffix = _branch_suffix(step)
+    base = configured or default
+    return base if not suffix else f"{base} {suffix}"
+
+
+def _service_dir_for_step(step: str) -> str:
+    return {
+        STEP_LIDSKJALV_ORIGINAL: "lidskjalv-original",
+        STEP_LIDSKJALV_GENERATED: "lidskjalv-generated",
+        STEP_LIDSKJALV_GENERATED_V2: "lidskjalv-generated-v2",
+        STEP_LIDSKJALV_GENERATED_V3: "lidskjalv-generated-v3",
+    }[step]
+
+
+def _generated_eitri_writers(configured: Mapping[str, object]) -> dict[str, object]:
+    writers: dict[str, object] = copy.deepcopy(dict(configured))
+    plantuml = writers.get("plantuml")
+    if plantuml is None:
+        writers["plantuml"] = {"generateDegradedDiagrams": False}
+        return writers
+    if isinstance(plantuml, Mapping):
+        plantuml_config = copy.deepcopy(dict(plantuml))
+        plantuml_config["generateDegradedDiagrams"] = False
+        writers["plantuml"] = plantuml_config
+    return writers
 
 
 def _optional_hint_str(value: object) -> str | None:

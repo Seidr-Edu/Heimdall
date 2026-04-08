@@ -20,7 +20,11 @@ from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
     STEP_EITRI,
     STEP_EITRI_GENERATED,
+    STEP_EITRI_GENERATED_V2,
+    STEP_EITRI_GENERATED_V3,
     STEP_MIMIR,
+    STEP_MIMIR_V2,
+    STEP_MIMIR_V3,
     PipelineConfig,
     ResolvedImages,
     RuntimeConfig,
@@ -116,8 +120,12 @@ def _collect_repository_stats(steps: dict[str, StepState]) -> dict[str, object]:
     aliases = (
         ("original", STEP_EITRI),
         ("andvari_generated", STEP_EITRI_GENERATED),
+        ("andvari_generated_v2", STEP_EITRI_GENERATED_V2),
+        ("andvari_generated_v3", STEP_EITRI_GENERATED_V3),
         ("lidskjalv_original_input", STEP_EITRI),
         ("lidskjalv_generated_input", STEP_EITRI_GENERATED),
+        ("lidskjalv_generated_v2_input", STEP_EITRI_GENERATED_V2),
+        ("lidskjalv_generated_v3_input", STEP_EITRI_GENERATED_V3),
     )
     repository_stats: dict[str, object] = {}
     for label, step in aliases:
@@ -146,18 +154,26 @@ def _collect_repository_stats(steps: dict[str, StepState]) -> dict[str, object]:
 
 
 def _collect_diagram_comparisons(steps: dict[str, StepState]) -> dict[str, object]:
-    state = steps.get(STEP_MIMIR)
-    if state is None or state.report_path is None or state.report_status != "passed":
-        return {}
-    report_path = Path(state.report_path)
-    if not report_path.is_file():
-        return {}
-    try:
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    comparisons = report.get("diagram_comparisons")
-    return dict(comparisons) if isinstance(comparisons, dict) else {}
+    merged: dict[str, object] = {}
+    for step in (STEP_MIMIR, STEP_MIMIR_V2, STEP_MIMIR_V3):
+        state = steps.get(step)
+        if (
+            state is None
+            or state.report_path is None
+            or state.report_status != "passed"
+        ):
+            continue
+        report_path = Path(state.report_path)
+        if not report_path.is_file():
+            continue
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        comparisons = report.get("diagram_comparisons")
+        if isinstance(comparisons, dict):
+            merged.update(comparisons)
+    return merged
 
 
 def _run_scheduler(
@@ -179,6 +195,11 @@ def _run_scheduler(
                 definition = STEP_DEFINITIONS[step]
                 if any(
                     dependency not in finished for dependency in definition.depends_on
+                ):
+                    continue
+                if any(
+                    predecessor not in finished
+                    for predecessor in definition.order_after
                 ):
                     continue
                 blocked_by = [

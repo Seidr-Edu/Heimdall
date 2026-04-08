@@ -41,7 +41,8 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 str(self.bin_dir),
                 "--codex-home-dir",
                 str(self.home_dir),
-            ]
+            ],
+            extra_env={"FAKE_DOCKER_KVASIR_SLEEP_SEC": "0.2"},
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
@@ -66,27 +67,41 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         )
 
         self.assertEqual(pipeline_report["status"], "passed")
-        self.assertEqual(pipeline_report["steps"]["brokk"]["status"], "passed")
-        self.assertEqual(pipeline_report["steps"]["eitri"]["status"], "passed")
-        self.assertEqual(pipeline_report["steps"]["andvari"]["status"], "passed")
-        self.assertEqual(
-            pipeline_report["steps"]["eitri-generated"]["status"], "passed"
-        )
-        self.assertEqual(pipeline_report["steps"]["mimir"]["status"], "passed")
-        self.assertEqual(pipeline_report["steps"]["kvasir"]["status"], "passed")
-        self.assertEqual(
-            pipeline_report["steps"]["lidskjalv-original"]["status"], "passed"
-        )
-        self.assertEqual(
-            pipeline_report["steps"]["lidskjalv-generated"]["status"], "passed"
-        )
+        expected_steps = {
+            "brokk",
+            "eitri",
+            "lidskjalv-original",
+            "andvari",
+            "eitri-generated",
+            "mimir",
+            "kvasir",
+            "lidskjalv-generated",
+            "andvari-v2",
+            "eitri-generated-v2",
+            "mimir-v2",
+            "kvasir-v2",
+            "lidskjalv-generated-v2",
+            "andvari-v3",
+            "eitri-generated-v3",
+            "mimir-v3",
+            "kvasir-v3",
+            "lidskjalv-generated-v3",
+        }
+        self.assertEqual(set(pipeline_report["steps"]), expected_steps)
+        for step in expected_steps:
+            self.assertEqual(pipeline_report["steps"][step]["status"], "passed")
         self.assertEqual(sonar_follow_up["status"], "skipped")
         self.assertEqual(
-            sonar_follow_up["steps"]["lidskjalv-original"]["status"], "skipped"
+            set(sonar_follow_up["steps"]),
+            {
+                "lidskjalv-original",
+                "lidskjalv-generated",
+                "lidskjalv-generated-v2",
+                "lidskjalv-generated-v3",
+            },
         )
-        self.assertEqual(
-            sonar_follow_up["steps"]["lidskjalv-generated"]["status"], "skipped"
-        )
+        for step in sonar_follow_up["steps"]:
+            self.assertEqual(sonar_follow_up["steps"][step]["status"], "skipped")
         self.assertEqual(eitri_report["status"], "passed")
         self.assertEqual(
             eitri_report["artifacts"]["diagram_path"],
@@ -105,7 +120,27 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             "eitri-generated",
         )
         self.assertEqual(
+            pipeline_report["repository_stats"]["andvari_generated_v2"]["source_step"],
+            "eitri-generated-v2",
+        )
+        self.assertEqual(
+            pipeline_report["repository_stats"]["andvari_generated_v3"]["source_step"],
+            "eitri-generated-v3",
+        )
+        self.assertEqual(
             pipeline_report["diagram_comparisons"]["andvari_generated"][
+                "exact_similarity"
+            ],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline_report["diagram_comparisons"]["andvari_generated_v2"][
+                "exact_similarity"
+            ],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline_report["diagram_comparisons"]["andvari_generated_v3"][
                 "exact_similarity"
             ],
             1.0,
@@ -126,7 +161,40 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             (
                 run_root
                 / "services"
+                / "eitri"
+                / "run"
+                / "artifacts"
+                / "model"
+                / "diagram_v2.puml"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
+                / "eitri"
+                / "run"
+                / "artifacts"
+                / "model"
+                / "diagram_v3.puml"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
                 / "eitri-generated"
+                / "run"
+                / "artifacts"
+                / "model"
+                / "model_snapshot.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
+                / "eitri-generated-v2"
                 / "run"
                 / "artifacts"
                 / "model"
@@ -142,6 +210,17 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 / "artifacts"
                 / "comparisons"
                 / "andvari_generated.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
+                / "mimir-v2"
+                / "run"
+                / "artifacts"
+                / "comparisons"
+                / "andvari_generated_v2.json"
             ).is_file()
         )
         self.assertTrue(
@@ -168,6 +247,17 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         )
         self.assertTrue(
             (
+                run_root
+                / "services"
+                / "andvari-v3"
+                / "run"
+                / "artifacts"
+                / "generated-repo"
+                / "README.md"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
                 run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"
             ).is_file()
         )
@@ -182,28 +272,65 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 / "README.md"
             ).is_file()
         )
+        self.assertTrue(
+            (
+                run_root
+                / "services"
+                / "kvasir-v2"
+                / "run"
+                / "artifacts"
+                / "ported-tests-repo"
+                / "README.md"
+            ).is_file()
+        )
         self.assertEqual(
             set(artifact_index["artifacts"]),
             {
                 "andvari_logs",
+                "andvari_logs_v2",
+                "andvari_logs_v3",
                 "andvari_report_dir",
+                "andvari_report_dir_v2",
+                "andvari_report_dir_v3",
                 "generated_repo",
+                "generated_repo_v2",
+                "generated_repo_v3",
                 "generated_model_diagram",
+                "generated_model_diagram_v2",
+                "generated_model_diagram_v3",
                 "generated_model_logs",
+                "generated_model_logs_v2",
+                "generated_model_logs_v3",
                 "generated_model_repository_stats",
+                "generated_model_repository_stats_v2",
+                "generated_model_repository_stats_v3",
                 "generated_model_snapshot",
+                "generated_model_snapshot_v2",
+                "generated_model_snapshot_v3",
                 "diagram_comparison_aggregate",
+                "diagram_comparison_aggregate_v2",
+                "diagram_comparison_aggregate_v3",
                 "diagram_comparison_andvari_generated",
+                "diagram_comparison_andvari_generated_v2",
+                "diagram_comparison_andvari_generated_v3",
                 "kvasir_report",
+                "kvasir_v2_report",
+                "kvasir_v3_report",
                 "lidskjalv_generated_report",
+                "lidskjalv_generated_v2_report",
+                "lidskjalv_generated_v3_report",
                 "lidskjalv_original_report",
                 "model_diagram",
                 "model_logs",
                 "model_repository_stats",
                 "model_snapshot",
                 "mimir_report",
+                "mimir_v2_report",
+                "mimir_v3_report",
                 "original_repo",
                 "ported_tests_repo",
+                "ported_tests_repo_v2",
+                "ported_tests_repo_v3",
                 "source_manifest",
             },
         )
@@ -226,9 +353,25 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         self.assertLess(
             run_by_step["kvasir"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
         )
+        self.assertLess(run_by_step["mimir"]["seq"], run_by_step["andvari-v2"]["seq"])
+        self.assertLess(
+            run_by_step["lidskjalv-generated"]["seq"],
+            run_by_step["andvari-v2"]["seq"],
+        )
+        self.assertLess(
+            run_by_step["mimir-v2"]["seq"], run_by_step["andvari-v3"]["seq"]
+        )
+        self.assertLess(
+            run_by_step["lidskjalv-generated-v2"]["seq"],
+            run_by_step["andvari-v3"]["seq"],
+        )
         lidskjalv_generated_mounts = {
             mount["container"]: Path(mount["host"])
             for mount in run_by_step["lidskjalv-generated"]["mounts"]
+        }
+        lidskjalv_generated_v2_mounts = {
+            mount["container"]: Path(mount["host"])
+            for mount in run_by_step["lidskjalv-generated-v2"]["mounts"]
         }
         self.assertEqual(
             lidskjalv_generated_mounts["/input/repo"].resolve(),
@@ -241,11 +384,24 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 / "ported-tests-repo"
             ).resolve(),
         )
+        self.assertEqual(
+            lidskjalv_generated_v2_mounts["/input/repo"].resolve(),
+            (
+                run_root
+                / "services"
+                / "kvasir-v2"
+                / "run"
+                / "artifacts"
+                / "ported-tests-repo"
+            ).resolve(),
+        )
         for entry in runs:
             mount_hosts = {Path(mount["host"]) for mount in entry["mounts"]}
             self.assertNotIn(run_root / "pipeline" / "manifest.yaml", mount_hosts)
 
         eitri_manifest = run_by_step["eitri"]["manifest"]
+        generated_eitri_manifest = run_by_step["eitri-generated"]["manifest"]
+        generated_eitri_v2_manifest = run_by_step["eitri-generated-v2"]["manifest"]
         self.assertEqual(eitri_manifest["writer_extension"], ".puml")
         self.assertEqual(
             eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
@@ -253,6 +409,20 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         self.assertEqual(
             eitri_manifest["writers"]["plantuml"]["hidePrivate"],
             True,
+        )
+        self.assertNotIn(
+            "generateDegradedDiagrams",
+            eitri_manifest["writers"]["plantuml"],
+        )
+        self.assertEqual(
+            generated_eitri_manifest["writers"]["plantuml"]["generateDegradedDiagrams"],
+            False,
+        )
+        self.assertEqual(
+            generated_eitri_v2_manifest["writers"]["plantuml"][
+                "generateDegradedDiagrams"
+            ],
+            False,
         )
 
     def _run_cli(

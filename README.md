@@ -1,16 +1,21 @@
 # Heimdall
 
-Heimdall is the host-side orchestrator for the fixed pipeline graph:
+Heimdall is the host-side orchestrator for a fixed branch-serial DAG:
 
 1. `Brokk`
 2. then in parallel: `Eitri`, `Lidskjalv(original)`
-3. then `Andvari`
-4. then in parallel: `Eitri(generated)`, `Kvasir`
-5. then `Lidskjalv(generated)` scans Kvasir's finished repo with ported tests
-6. then `Mimir` compares the original and generated Eitri snapshots
+3. then the best-effort generated branch:
+   `Andvari -> Eitri(generated) -> Mimir` and `Andvari -> Kvasir -> Lidskjalv(generated)`
+4. then the `v2` generated branch with the same shape
+5. then the `v3` generated branch with the same shape
 
-`Kvasir` fans out after `Andvari`, `Lidskjalv(generated)` waits for Kvasir's
-ported-tests artifact, and neither step waits for `Mimir`.
+The best-effort, `v2`, and `v3` generated branches all live under the same
+Heimdall run and share one `run_id`. Later branches wait only for the prior
+branch to reach a terminal state; they do not require the prior branch to pass.
+
+Within a branch, `Mimir` starts after `Eitri(generated*)` and compares the
+original Eitri `diagram.puml` against that branch's generated `diagram.puml`.
+`Kvasir` and `Lidskjalv(generated*)` are independent of `Mimir`.
 
 It uses the Docker CLI through `subprocess`, renders one service-specific
 manifest per step, stores run state under `runs/<run_id>/`, and branches on
@@ -64,6 +69,11 @@ mounts.
 Heimdall can also run as a long-lived VPS worker that owns a FIFO queue. The
 queue uses YAML request/job records under `queue/`, while the canonical
 pipeline outputs remain under `runs/<run_id>/`.
+
+Each queued `(repo_url, commit_sha)` becomes one queue job and one Heimdall
+run. The worker uses the allocated `job_id` as the pipeline `run_id`, so a
+single repo/commit produces one run directory containing the best-effort, `v2`,
+and `v3` branches together.
 
 Worker config example:
 
@@ -282,8 +292,11 @@ Key rules:
 - no public `provider.*` host-path block is allowed
 - do not put secrets such as `SONAR_TOKEN` in the manifest
 - unknown top-level keys are rejected
-- `eitri.writers` is passed through directly to Eitri, so nested keys must match
-  Eitri's real PlantUML config schema such as `diagramName` or `hidePrivate`
+- `eitri.writers` is passed through to original `eitri`, but Heimdall forces
+  `writers.plantuml.generateDegradedDiagrams: false` for `eitri-generated*` so
+  generated-repo Eitri runs emit only `diagram.puml`
+- nested `eitri.writers` keys must still match Eitri's real PlantUML config
+  schema such as `diagramName`, `hidePrivate`, or `generateDegradedDiagrams`
 
 ## Run layout
 
@@ -295,17 +308,31 @@ Each run is written under `runs/<run_id>/`:
 - `pipeline/artifact_index.json`
 - `pipeline/outputs/run_report.json`
 - `pipeline/outputs/summary.md`
+- `pipeline/outputs/sonar_follow_up.json`
 - `pipeline/logs/<step>.log`
 - `services/<step>/config/manifest.yaml`
 - `services/<step>/run/...`
+
+For one queued repo/commit, the run contains service directories for:
+
+- original/source steps: `brokk`, `eitri`, `lidskjalv-original`
+- best-effort generated branch: `andvari`, `eitri-generated`, `mimir`, `kvasir`, `lidskjalv-generated`
+- `v2` generated branch: `andvari-v2`, `eitri-generated-v2`, `mimir-v2`, `kvasir-v2`, `lidskjalv-generated-v2`
+- `v3` generated branch: `andvari-v3`, `eitri-generated-v3`, `mimir-v3`, `kvasir-v3`, `lidskjalv-generated-v3`
+
+The per-step container logs are all written under the same run at
+`pipeline/logs/<step>.log`, for example `andvari.log`, `andvari-v2.log`, and
+`mimir-v3.log`.
 
 Service `run/` directories are created with mode `0777` so the service images
 can write as `uid=10001` on both local hosts and the `munin` VPS user.
 
 Pipeline reports may now include top-level `repository_stats` and
-`diagram_comparisons`. The artifact index may include `model_snapshot`,
-`generated_model_snapshot`, `mimir_report`, and `diagram_comparison_*` entries
-when those artifacts are produced by the run.
+`diagram_comparisons` aggregated across `mimir`, `mimir-v2`, and `mimir-v3`.
+The artifact index may include best-effort keys such as `mimir_report` and
+`diagram_comparison_*`, plus suffixed branch keys such as `generated_repo_v2`,
+`ported_tests_repo_v3`, `mimir_v2_report`, and
+`lidskjalv_generated_v3_report`.
 
 With `--verbose`, Heimdall prints preflight progress, step start/finish events,
 and streams each container's combined stdout/stderr to the terminal with a step

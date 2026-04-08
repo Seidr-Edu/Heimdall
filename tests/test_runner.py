@@ -55,6 +55,16 @@ class RunnerIntegrationTest(unittest.TestCase):
             )
         )
         self.assertEqual(failed_report["steps"]["kvasir"]["status"], "failed")
+        self.assertEqual(
+            failed_report["steps"]["lidskjalv-generated"]["status"], "blocked"
+        )
+        self.assertEqual(failed_report["steps"]["andvari-v2"]["status"], "passed")
+        self.assertEqual(failed_report["steps"]["mimir-v2"]["status"], "passed")
+        self.assertEqual(
+            failed_report["steps"]["lidskjalv-generated-v2"]["status"], "passed"
+        )
+        self.assertEqual(failed_report["steps"]["andvari-v3"]["status"], "passed")
+        self.assertEqual(failed_report["steps"]["mimir-v3"]["status"], "passed")
 
         resumed = self._run_cli(
             [
@@ -114,11 +124,26 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
 
         runs = load_fake_state(self.state_path)["runs"]
-        rerun_steps = [entry["step"] for entry in runs[-5:]]
-        self.assertEqual(rerun_steps[0], "andvari")
+        rerun_steps = [entry["step"] for entry in runs[-15:]]
         self.assertEqual(
-            set(rerun_steps[1:]),
-            {"eitri-generated", "mimir", "kvasir", "lidskjalv-generated"},
+            set(rerun_steps),
+            {
+                "andvari",
+                "eitri-generated",
+                "mimir",
+                "kvasir",
+                "lidskjalv-generated",
+                "andvari-v2",
+                "eitri-generated-v2",
+                "mimir-v2",
+                "kvasir-v2",
+                "lidskjalv-generated-v2",
+                "andvari-v3",
+                "eitri-generated-v3",
+                "mimir-v3",
+                "kvasir-v3",
+                "lidskjalv-generated-v3",
+            },
         )
 
     def test_missing_report_marks_step_error_and_blocks_downstream(self) -> None:
@@ -150,6 +175,16 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["mimir"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
         self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "blocked")
+        self.assertEqual(report["steps"]["andvari-v2"]["status"], "blocked")
+        self.assertEqual(report["steps"]["eitri-generated-v2"]["status"], "blocked")
+        self.assertEqual(report["steps"]["mimir-v2"]["status"], "blocked")
+        self.assertEqual(report["steps"]["kvasir-v2"]["status"], "blocked")
+        self.assertEqual(report["steps"]["lidskjalv-generated-v2"]["status"], "blocked")
+        self.assertEqual(report["steps"]["andvari-v3"]["status"], "blocked")
+        self.assertEqual(report["steps"]["eitri-generated-v3"]["status"], "blocked")
+        self.assertEqual(report["steps"]["mimir-v3"]["status"], "blocked")
+        self.assertEqual(report["steps"]["kvasir-v3"]["status"], "blocked")
+        self.assertEqual(report["steps"]["lidskjalv-generated-v3"]["status"], "blocked")
 
     def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
