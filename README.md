@@ -292,8 +292,11 @@ Key rules:
 - no public `provider.*` host-path block is allowed
 - do not put secrets such as `SONAR_TOKEN` in the manifest
 - unknown top-level keys are rejected
-- `eitri.writers` is passed through directly to Eitri, so nested keys must match
-  Eitri's real PlantUML config schema such as `diagramName` or `hidePrivate`
+- `eitri.writers` is passed through to original `eitri`, but Heimdall forces
+  `writers.plantuml.generateDegradedDiagrams: false` for `eitri-generated*` so
+  generated-repo Eitri runs emit only `diagram.puml`
+- nested `eitri.writers` keys must still match Eitri's real PlantUML config
+  schema such as `diagramName`, `hidePrivate`, or `generateDegradedDiagrams`
 
 ## Run layout
 

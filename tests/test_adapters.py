@@ -98,6 +98,10 @@ class AdapterTest(unittest.TestCase):
             eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
         )
         self.assertEqual(eitri_manifest["writers"]["plantuml"]["hidePrivate"], True)
+        self.assertNotIn(
+            "generateDegradedDiagrams",
+            eitri_manifest["writers"]["plantuml"],
+        )
         self.assertEqual(
             [
                 (str(mount.host_path), mount.container_path, mount.read_only)
@@ -226,6 +230,8 @@ class AdapterTest(unittest.TestCase):
             kvasir_v2 = prepare_step("kvasir-v2", context)
             generated_eitri = prepare_step("eitri-generated", context)
             generated_eitri_v2 = prepare_step("eitri-generated-v2", context)
+            generated_eitri_manifest = loads(generated_eitri.manifest_text)
+            generated_eitri_v2_manifest = loads(generated_eitri_v2.manifest_text)
             hints = json.loads(
                 (kvasir.config_dir / "build-hints.json").read_text(encoding="utf-8")
             )
@@ -277,6 +283,21 @@ class AdapterTest(unittest.TestCase):
                 "/input/repo",
                 True,
             ),
+        )
+        self.assertEqual(
+            generated_eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
+        )
+        self.assertEqual(
+            generated_eitri_manifest["writers"]["plantuml"][
+                "generateDegradedDiagrams"
+            ],
+            False,
+        )
+        self.assertEqual(
+            generated_eitri_v2_manifest["writers"]["plantuml"][
+                "generateDegradedDiagrams"
+            ],
+            False,
         )
 
     def test_prepare_generated_lidskjalv_mounts_kvasir_ported_repo(self) -> None:

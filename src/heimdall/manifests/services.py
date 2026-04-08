@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -68,8 +69,11 @@ def build_step_manifest_payload(
             payload["writer_extension"] = context.config.eitri.writer_extension
         if context.config.eitri.verbose:
             payload["verbose"] = True
-        if context.config.eitri.writers:
-            payload["writers"] = context.config.eitri.writers
+        writers: Mapping[str, object] = context.config.eitri.writers
+        if step in EITRI_GENERATED_STEPS:
+            payload["writers"] = _generated_eitri_writers(writers)
+        elif writers:
+            payload["writers"] = dict(writers)
         return payload
     if step in ANDVARI_STEPS:
         return {
@@ -287,6 +291,19 @@ def _service_dir_for_step(step: str) -> str:
         STEP_LIDSKJALV_GENERATED_V2: "lidskjalv-generated-v2",
         STEP_LIDSKJALV_GENERATED_V3: "lidskjalv-generated-v3",
     }[step]
+
+
+def _generated_eitri_writers(configured: Mapping[str, object]) -> dict[str, object]:
+    writers: dict[str, object] = copy.deepcopy(dict(configured))
+    plantuml = writers.get("plantuml")
+    if plantuml is None:
+        writers["plantuml"] = {"generateDegradedDiagrams": False}
+        return writers
+    if isinstance(plantuml, Mapping):
+        plantuml_config = copy.deepcopy(dict(plantuml))
+        plantuml_config["generateDegradedDiagrams"] = False
+        writers["plantuml"] = plantuml_config
+    return writers
 
 
 def _optional_hint_str(value: object) -> str | None:

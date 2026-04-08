@@ -400,6 +400,8 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             self.assertNotIn(run_root / "pipeline" / "manifest.yaml", mount_hosts)
 
         eitri_manifest = run_by_step["eitri"]["manifest"]
+        generated_eitri_manifest = run_by_step["eitri-generated"]["manifest"]
+        generated_eitri_v2_manifest = run_by_step["eitri-generated-v2"]["manifest"]
         self.assertEqual(eitri_manifest["writer_extension"], ".puml")
         self.assertEqual(
             eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
@@ -407,6 +409,22 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         self.assertEqual(
             eitri_manifest["writers"]["plantuml"]["hidePrivate"],
             True,
+        )
+        self.assertNotIn(
+            "generateDegradedDiagrams",
+            eitri_manifest["writers"]["plantuml"],
+        )
+        self.assertEqual(
+            generated_eitri_manifest["writers"]["plantuml"][
+                "generateDegradedDiagrams"
+            ],
+            False,
+        )
+        self.assertEqual(
+            generated_eitri_v2_manifest["writers"]["plantuml"][
+                "generateDegradedDiagrams"
+            ],
+            False,
         )
 
     def _run_cli(

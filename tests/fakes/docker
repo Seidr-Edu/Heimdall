@@ -344,7 +344,7 @@ def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
     snapshot_path = model_dir / "model_snapshot.json"
     repository_stats_path = model_dir / "repository_stats.json"
     diagram_path.write_text("@startuml\nclass Demo\n@enduml\n", encoding="utf-8")
-    if run_root.parent.name == "eitri":
+    if _should_generate_degraded_diagrams(manifest):
         (model_dir / "diagram_v2.puml").write_text(
             "@startuml\nclass DemoV2\n@enduml\n", encoding="utf-8"
         )
@@ -687,6 +687,17 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 def _write_summary(path: Path, title: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"# {title}\n", encoding="utf-8")
+
+
+def _should_generate_degraded_diagrams(manifest: dict[str, Any]) -> bool:
+    writers = manifest.get("writers")
+    if not isinstance(writers, dict):
+        return True
+    plantuml = writers.get("plantuml")
+    if not isinstance(plantuml, dict):
+        return True
+    raw = plantuml.get("generateDegradedDiagrams")
+    return raw is not False
 
 
 def _image_id(image_ref: str) -> str:
