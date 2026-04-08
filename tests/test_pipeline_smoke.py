@@ -120,15 +120,11 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             "eitri-generated",
         )
         self.assertEqual(
-            pipeline_report["repository_stats"]["andvari_generated_v2"][
-                "source_step"
-            ],
+            pipeline_report["repository_stats"]["andvari_generated_v2"]["source_step"],
             "eitri-generated-v2",
         )
         self.assertEqual(
-            pipeline_report["repository_stats"]["andvari_generated_v3"][
-                "source_step"
-            ],
+            pipeline_report["repository_stats"]["andvari_generated_v3"]["source_step"],
             "eitri-generated-v3",
         )
         self.assertEqual(
@@ -360,9 +356,7 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
         self.assertLess(
             run_by_step["mimir"]["seq"], run_by_step["lidskjalv-generated"]["seq"]
         )
-        self.assertLess(
-            run_by_step["mimir"]["seq"], run_by_step["andvari-v2"]["seq"]
-        )
+        self.assertLess(run_by_step["mimir"]["seq"], run_by_step["andvari-v2"]["seq"])
         self.assertLess(
             run_by_step["lidskjalv-generated"]["seq"],
             run_by_step["andvari-v2"]["seq"],

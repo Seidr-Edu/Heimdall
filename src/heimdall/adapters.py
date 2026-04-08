@@ -552,26 +552,14 @@ def _andvari_generated_repo_for_kvasir_step(run_root: Path, step: str) -> Path:
 
 def _andvari_generated_repo_for_branch_suffix(run_root: Path, suffix: str) -> Path:
     service_dir = "andvari" if suffix == "" else f"andvari-{suffix}"
-    return (
-        run_root
-        / "services"
-        / service_dir
-        / "run"
-        / "artifacts"
-        / "generated-repo"
-    )
+    return run_root / "services" / service_dir / "run" / "artifacts" / "generated-repo"
 
 
 def _kvasir_ported_tests_repo_for_lidskjalv_step(run_root: Path, step: str) -> Path:
     suffix = _branch_suffix(step)
     service_dir = "kvasir" if suffix == "" else f"kvasir-{suffix}"
     return (
-        run_root
-        / "services"
-        / service_dir
-        / "run"
-        / "artifacts"
-        / "ported-tests-repo"
+        run_root / "services" / service_dir / "run" / "artifacts" / "ported-tests-repo"
     )
 
 

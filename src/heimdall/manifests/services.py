@@ -177,13 +177,7 @@ def brokk_source_manifest(run_root: Path) -> Path:
 def mimir_diagram_sources(step: str, run_root: Path) -> dict[str, Path]:
     sources: dict[str, Path] = {}
     original = (
-        run_root
-        / "services"
-        / "eitri"
-        / "run"
-        / "artifacts"
-        / "model"
-        / "diagram.puml"
+        run_root / "services" / "eitri" / "run" / "artifacts" / "model" / "diagram.puml"
     )
     if original.is_file():
         sources["original"] = original
@@ -274,17 +268,13 @@ def _lidskjalv_scan_label(step: str) -> str:
     return "generated" if not suffix else f"generated-{suffix}"
 
 
-def _lidskjalv_project_key(
-    configured: str | None, default: str, step: str
-) -> str:
+def _lidskjalv_project_key(configured: str | None, default: str, step: str) -> str:
     suffix = _branch_suffix(step)
     base = configured or default
     return base if not suffix else f"{base}_{suffix}"
 
 
-def _lidskjalv_project_name(
-    configured: str | None, default: str, step: str
-) -> str:
+def _lidskjalv_project_name(configured: str | None, default: str, step: str) -> str:
     suffix = _branch_suffix(step)
     base = configured or default
     return base if not suffix else f"{base} {suffix}"

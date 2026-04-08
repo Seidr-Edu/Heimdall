@@ -179,16 +179,12 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["eitri-generated-v2"]["status"], "blocked")
         self.assertEqual(report["steps"]["mimir-v2"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir-v2"]["status"], "blocked")
-        self.assertEqual(
-            report["steps"]["lidskjalv-generated-v2"]["status"], "blocked"
-        )
+        self.assertEqual(report["steps"]["lidskjalv-generated-v2"]["status"], "blocked")
         self.assertEqual(report["steps"]["andvari-v3"]["status"], "blocked")
         self.assertEqual(report["steps"]["eitri-generated-v3"]["status"], "blocked")
         self.assertEqual(report["steps"]["mimir-v3"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir-v3"]["status"], "blocked")
-        self.assertEqual(
-            report["steps"]["lidskjalv-generated-v3"]["status"], "blocked"
-        )
+        self.assertEqual(report["steps"]["lidskjalv-generated-v3"]["status"], "blocked")
 
     def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)

@@ -150,7 +150,9 @@ class AdapterTest(unittest.TestCase):
             )
             eitri_model.mkdir(parents=True, exist_ok=True)
             write_file(eitri_model / "diagram.puml", "@startuml\n@enduml\n")
-            write_file(eitri_model / "diagram_v2.puml", "@startuml\nclass V2\n@enduml\n")
+            write_file(
+                eitri_model / "diagram_v2.puml", "@startuml\nclass V2\n@enduml\n"
+            )
             andvari_generated = (
                 root
                 / "run-root"
