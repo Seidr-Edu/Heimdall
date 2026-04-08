@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import time
 from typing import Any
 
 from heimdall.simpleyaml import loads
@@ -134,21 +135,22 @@ def _handle_run(args: list[str]) -> int:
 
     _mutate_state(update)
 
+    _maybe_sleep(step)
     if mode == "missing-report":
         return 0
     if step.startswith("smoke-"):
         return _run_provider_smoke(container, env_vars, mode)
     if step == "brokk":
         _run_brokk(container, manifest, mode)
-    elif step in {"eitri", "eitri-generated"}:
+    elif step == "eitri" or step.startswith("eitri-generated"):
         _run_eitri(container, manifest, mode)
-    elif step == "andvari":
+    elif step == "andvari" or step.startswith("andvari-"):
         _run_andvari(container, manifest, mode)
-    elif step == "mimir":
+    elif step == "mimir" or step.startswith("mimir-"):
         _run_mimir(container, manifest, mode)
-    elif step == "kvasir":
+    elif step == "kvasir" or step.startswith("kvasir-"):
         _run_kvasir(container, manifest, mode)
-    elif step in {"lidskjalv-original", "lidskjalv-generated"}:
+    elif step.startswith("lidskjalv-"):
         _run_lidskjalv(container, manifest, mode)
     else:
         print(f"unknown fake step for image {image_ref}", file=sys.stderr)
@@ -206,6 +208,9 @@ def _load_manifest(container: _ContainerMounts, env_vars: dict[str, str]) -> dic
 def _infer_step(
     image_ref: str, manifest: dict[str, Any], mounts: list[dict[str, Any]]
 ) -> str:
+    service_name = _service_name_from_mounts(mounts)
+    if service_name is not None:
+        return service_name
     lowered = image_ref.lower()
     if "brokk" in lowered:
         return "brokk"
@@ -223,6 +228,52 @@ def _infer_step(
         label = str(manifest.get("scan_label", "original"))
         return f"lidskjalv-{label}"
     return "unknown"
+
+
+def _service_name_from_mounts(mounts: list[dict[str, Any]]) -> str | None:
+    for mount in mounts:
+        if mount.get("container") not in {"/run", "/run/config"}:
+            continue
+        parts = Path(str(mount["host"])).parts
+        for index, part in enumerate(parts[:-1]):
+            if part != "services":
+                continue
+            service = parts[index + 1]
+            if service in {
+                "brokk",
+                "eitri",
+                "lidskjalv-original",
+                "andvari",
+                "andvari-v2",
+                "andvari-v3",
+                "eitri-generated",
+                "eitri-generated-v2",
+                "eitri-generated-v3",
+                "mimir",
+                "mimir-v2",
+                "mimir-v3",
+                "kvasir",
+                "kvasir-v2",
+                "kvasir-v3",
+                "lidskjalv-generated",
+                "lidskjalv-generated-v2",
+                "lidskjalv-generated-v3",
+            }:
+                return service
+    return None
+
+
+def _maybe_sleep(step: str) -> None:
+    env_name = f"FAKE_DOCKER_{step.upper().replace('-', '_')}_SLEEP_SEC"
+    raw = os.environ.get(env_name)
+    if raw is None:
+        return
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return
+    if seconds > 0:
+        time.sleep(seconds)
 
 
 def _run_provider_smoke(
@@ -312,6 +363,13 @@ def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
     snapshot_path = model_dir / "model_snapshot.json"
     repository_stats_path = model_dir / "repository_stats.json"
     diagram_path.write_text("@startuml\nclass Demo\n@enduml\n", encoding="utf-8")
+    if run_root.parent.name == "eitri":
+        (model_dir / "diagram_v2.puml").write_text(
+            "@startuml\nclass DemoV2\n@enduml\n", encoding="utf-8"
+        )
+        (model_dir / "diagram_v3.puml").write_text(
+            "@startuml\nclass DemoV3\n@enduml\n", encoding="utf-8"
+        )
     _write_json(
         snapshot_path,
         {

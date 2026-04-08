@@ -8,18 +8,28 @@ from pathlib import Path
 from heimdall.manifests.services import (
     build_step_manifest_payload,
     build_step_runtime_hints,
-    mimir_snapshot_sources,
+    mimir_diagram_sources,
 )
 from heimdall.models import (
     ALL_STEPS,
     STEP_ANDVARI,
+    STEP_ANDVARI_V2,
+    STEP_ANDVARI_V3,
     STEP_BROKK,
     STEP_EITRI,
     STEP_EITRI_GENERATED,
+    STEP_EITRI_GENERATED_V2,
+    STEP_EITRI_GENERATED_V3,
     STEP_KVASIR,
+    STEP_KVASIR_V2,
+    STEP_KVASIR_V3,
     STEP_LIDSKJALV_GENERATED,
+    STEP_LIDSKJALV_GENERATED_V2,
+    STEP_LIDSKJALV_GENERATED_V3,
     STEP_LIDSKJALV_ORIGINAL,
     STEP_MIMIR,
+    STEP_MIMIR_V2,
+    STEP_MIMIR_V3,
     ArtifactRecord,
     DockerMount,
     PipelineConfig,
@@ -42,6 +52,21 @@ class AdapterContext:
     resolved_images: ResolvedImages
 
 
+ANDVARI_STEPS = (STEP_ANDVARI, STEP_ANDVARI_V2, STEP_ANDVARI_V3)
+EITRI_GENERATED_STEPS = (
+    STEP_EITRI_GENERATED,
+    STEP_EITRI_GENERATED_V2,
+    STEP_EITRI_GENERATED_V3,
+)
+KVASIR_STEPS = (STEP_KVASIR, STEP_KVASIR_V2, STEP_KVASIR_V3)
+MIMIR_STEPS = (STEP_MIMIR, STEP_MIMIR_V2, STEP_MIMIR_V3)
+LIDSKJALV_GENERATED_STEPS = (
+    STEP_LIDSKJALV_GENERATED,
+    STEP_LIDSKJALV_GENERATED_V2,
+    STEP_LIDSKJALV_GENERATED_V3,
+)
+
+
 STEP_DEFINITIONS: dict[str, StepDefinition] = {
     STEP_BROKK: StepDefinition(
         name=STEP_BROKK,
@@ -61,6 +86,18 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
         service_dir_name="eitri-generated",
         report_relative_path="outputs/run_report.json",
     ),
+    STEP_EITRI_GENERATED_V2: StepDefinition(
+        name=STEP_EITRI_GENERATED_V2,
+        depends_on=(STEP_ANDVARI_V2,),
+        service_dir_name="eitri-generated-v2",
+        report_relative_path="outputs/run_report.json",
+    ),
+    STEP_EITRI_GENERATED_V3: StepDefinition(
+        name=STEP_EITRI_GENERATED_V3,
+        depends_on=(STEP_ANDVARI_V3,),
+        service_dir_name="eitri-generated-v3",
+        report_relative_path="outputs/run_report.json",
+    ),
     STEP_LIDSKJALV_ORIGINAL: StepDefinition(
         name=STEP_LIDSKJALV_ORIGINAL,
         depends_on=(STEP_BROKK,),
@@ -73,10 +110,36 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
         service_dir_name="andvari",
         report_relative_path="outputs/run_report.json",
     ),
+    STEP_ANDVARI_V2: StepDefinition(
+        name=STEP_ANDVARI_V2,
+        depends_on=(STEP_EITRI,),
+        service_dir_name="andvari-v2",
+        report_relative_path="outputs/run_report.json",
+        order_after=(STEP_MIMIR, STEP_LIDSKJALV_GENERATED),
+    ),
+    STEP_ANDVARI_V3: StepDefinition(
+        name=STEP_ANDVARI_V3,
+        depends_on=(STEP_EITRI,),
+        service_dir_name="andvari-v3",
+        report_relative_path="outputs/run_report.json",
+        order_after=(STEP_MIMIR_V2, STEP_LIDSKJALV_GENERATED_V2),
+    ),
     STEP_MIMIR: StepDefinition(
         name=STEP_MIMIR,
         depends_on=(STEP_EITRI, STEP_EITRI_GENERATED),
         service_dir_name="mimir",
+        report_relative_path="outputs/run_report.json",
+    ),
+    STEP_MIMIR_V2: StepDefinition(
+        name=STEP_MIMIR_V2,
+        depends_on=(STEP_EITRI, STEP_EITRI_GENERATED_V2),
+        service_dir_name="mimir-v2",
+        report_relative_path="outputs/run_report.json",
+    ),
+    STEP_MIMIR_V3: StepDefinition(
+        name=STEP_MIMIR_V3,
+        depends_on=(STEP_EITRI, STEP_EITRI_GENERATED_V3),
+        service_dir_name="mimir-v3",
         report_relative_path="outputs/run_report.json",
     ),
     STEP_KVASIR: StepDefinition(
@@ -85,10 +148,34 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
         service_dir_name="kvasir",
         report_relative_path="outputs/test_port.json",
     ),
+    STEP_KVASIR_V2: StepDefinition(
+        name=STEP_KVASIR_V2,
+        depends_on=(STEP_BROKK, STEP_EITRI, STEP_ANDVARI_V2),
+        service_dir_name="kvasir-v2",
+        report_relative_path="outputs/test_port.json",
+    ),
+    STEP_KVASIR_V3: StepDefinition(
+        name=STEP_KVASIR_V3,
+        depends_on=(STEP_BROKK, STEP_EITRI, STEP_ANDVARI_V3),
+        service_dir_name="kvasir-v3",
+        report_relative_path="outputs/test_port.json",
+    ),
     STEP_LIDSKJALV_GENERATED: StepDefinition(
         name=STEP_LIDSKJALV_GENERATED,
         depends_on=(STEP_KVASIR,),
         service_dir_name="lidskjalv-generated",
+        report_relative_path="outputs/run_report.json",
+    ),
+    STEP_LIDSKJALV_GENERATED_V2: StepDefinition(
+        name=STEP_LIDSKJALV_GENERATED_V2,
+        depends_on=(STEP_KVASIR_V2,),
+        service_dir_name="lidskjalv-generated-v2",
+        report_relative_path="outputs/run_report.json",
+    ),
+    STEP_LIDSKJALV_GENERATED_V3: StepDefinition(
+        name=STEP_LIDSKJALV_GENERATED_V3,
+        depends_on=(STEP_KVASIR_V3,),
+        service_dir_name="lidskjalv-generated-v3",
         report_relative_path="outputs/run_report.json",
     ),
 }
@@ -133,13 +220,13 @@ def prepare_step(
         )
         image_ref = context.config.images.brokk
         resolved_image_id = context.resolved_images.brokk
-    elif step in {STEP_EITRI, STEP_EITRI_GENERATED}:
+    elif step in {STEP_EITRI, *EITRI_GENERATED_STEPS}:
         payload = build_step_manifest_payload(step, context)
         env = {"EITRI_MANIFEST": "/run/config/manifest.yaml"}
         input_repo = (
             _brokk_original_repo(context.run_root)
             if step == STEP_EITRI
-            else _andvari_generated_repo(context.run_root)
+            else _andvari_generated_repo_for_eitri_step(context.run_root, step)
         )
         mounts = (
             DockerMount(input_repo, "/input/repo", True),
@@ -148,12 +235,12 @@ def prepare_step(
         )
         image_ref = context.config.images.eitri
         resolved_image_id = context.resolved_images.eitri
-    elif step == STEP_ANDVARI:
+    elif step in ANDVARI_STEPS:
         payload = build_step_manifest_payload(step, context)
         input_model_dir = service_root / "input" / "model"
         ensure_directory(input_model_dir, 0o755)
         if stage_inputs:
-            source_diagram = _eitri_diagram(context.run_root)
+            source_diagram = _eitri_diagram_for_andvari_step(context.run_root, step)
             destination_diagram = input_model_dir / "diagram.puml"
             shutil.copy2(source_diagram, destination_diagram)
             destination_diagram.chmod(0o644)
@@ -173,8 +260,15 @@ def prepare_step(
         provider_bin_dest = provider_bin_dir
         provider_seed_source = context.runtime.codex_home_dir
         provider_seed_dest = provider_seed_dir
-    elif step == STEP_KVASIR:
+    elif step in KVASIR_STEPS:
         payload = build_step_manifest_payload(step, context)
+        input_model_dir = service_root / "input" / "model"
+        ensure_directory(input_model_dir, 0o755)
+        if stage_inputs:
+            source_diagram = _eitri_diagram_for_kvasir_step(context.run_root, step)
+            destination_diagram = input_model_dir / "diagram.puml"
+            shutil.copy2(source_diagram, destination_diagram)
+            destination_diagram.chmod(0o644)
         provider_bin_dir = service_root / "input" / "provider-bin"
         provider_seed_dir = service_root / "input" / "provider-seed"
         env = {
@@ -186,9 +280,11 @@ def prepare_step(
                 _brokk_original_repo(context.run_root), "/input/original-repo", True
             ),
             DockerMount(
-                _andvari_generated_repo(context.run_root), "/input/generated-repo", True
+                _andvari_generated_repo_for_kvasir_step(context.run_root, step),
+                "/input/generated-repo",
+                True,
             ),
-            DockerMount(_eitri_model_dir(context.run_root), "/input/model", True),
+            DockerMount(input_model_dir, "/input/model", True),
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(provider_bin_dir, "/opt/provider/bin", True),
@@ -200,13 +296,15 @@ def prepare_step(
         provider_bin_dest = provider_bin_dir
         provider_seed_source = context.runtime.codex_home_dir
         provider_seed_dest = provider_seed_dir
-    elif step == STEP_MIMIR:
+    elif step in MIMIR_STEPS:
         payload = build_step_manifest_payload(step, context)
-        input_snapshots_dir = run_dir / "inputs" / "snapshots"
-        ensure_directory(input_snapshots_dir, 0o755)
+        input_diagrams_dir = run_dir / "inputs" / "diagrams"
+        ensure_directory(input_diagrams_dir, 0o755)
         if stage_inputs:
-            for label, source_path in mimir_snapshot_sources(context.run_root).items():
-                destination = input_snapshots_dir / label / "model_snapshot.json"
+            for label, source_path in mimir_diagram_sources(
+                step, context.run_root
+            ).items():
+                destination = input_diagrams_dir / label / "diagram.puml"
                 ensure_directory(destination.parent, 0o755)
                 shutil.copy2(source_path, destination)
                 destination.chmod(0o644)
@@ -218,7 +316,7 @@ def prepare_step(
         image_ref = context.config.images.mimir
         resolved_image_id = context.resolved_images.mimir
     else:
-        generated = step == STEP_LIDSKJALV_GENERATED
+        generated = step in LIDSKJALV_GENERATED_STEPS
         payload = build_step_manifest_payload(step, context)
         env = {"LIDSKJALV_MANIFEST": "/run/config/manifest.yaml"}
         if not context.config.lidskjalv.skip_sonar:
@@ -230,7 +328,7 @@ def prepare_step(
             if context.runtime.sonar_organization is not None:
                 env["SONAR_ORGANIZATION"] = context.runtime.sonar_organization
         input_repo = (
-            _kvasir_ported_tests_repo(context.run_root)
+            _kvasir_ported_tests_repo_for_lidskjalv_step(context.run_root, step)
             if generated
             else _brokk_original_repo(context.run_root)
         )
@@ -244,7 +342,7 @@ def prepare_step(
 
     manifest_text = dumps(payload)
     write_text(config_path, manifest_text)
-    if step == STEP_KVASIR:
+    if step in KVASIR_STEPS:
         build_hints_path = config_dir / "build-hints.json"
         build_hints = build_step_runtime_hints(step, context)
         if build_hints:
@@ -287,7 +385,7 @@ def classify_report(
 
 
 def _is_success(step: str, report: dict[str, object]) -> bool:
-    if step == STEP_KVASIR:
+    if step in KVASIR_STEPS:
         return (
             report.get("status") == "passed"
             and report.get("behavioral_verdict") == "pass"
@@ -300,7 +398,7 @@ def _classify_reason(step: str, report: dict[str, object]) -> str | None:
     if reason:
         return str(reason)
     if (
-        step == STEP_KVASIR
+        step in KVASIR_STEPS
         and report.get("status") == "passed"
         and report.get("behavioral_verdict") != "pass"
     ):
@@ -339,48 +437,55 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
             records["model_repository_stats"] = ArtifactRecord(
                 owner=step, path=str(repository_stats)
             )
-    elif step == STEP_EITRI_GENERATED:
+    elif step in EITRI_GENERATED_STEPS:
+        suffix = _artifact_key_suffix(step)
         diagram = run_dir / "artifacts" / "model" / "diagram.puml"
         model_snapshot = run_dir / "artifacts" / "model" / "model_snapshot.json"
         logs_dir = run_dir / "artifacts" / "model" / "logs"
         repository_stats = run_dir / "artifacts" / "model" / "repository_stats.json"
         if diagram.exists():
-            records["generated_model_diagram"] = ArtifactRecord(
+            records[f"generated_model_diagram{suffix}"] = ArtifactRecord(
                 owner=step, path=str(diagram)
             )
         if model_snapshot.exists():
-            records["generated_model_snapshot"] = ArtifactRecord(
+            records[f"generated_model_snapshot{suffix}"] = ArtifactRecord(
                 owner=step, path=str(model_snapshot)
             )
         if logs_dir.exists():
-            records["generated_model_logs"] = ArtifactRecord(
+            records[f"generated_model_logs{suffix}"] = ArtifactRecord(
                 owner=step, path=str(logs_dir)
             )
         if repository_stats.exists():
-            records["generated_model_repository_stats"] = ArtifactRecord(
+            records[f"generated_model_repository_stats{suffix}"] = ArtifactRecord(
                 owner=step, path=str(repository_stats)
             )
-    elif step == STEP_ANDVARI:
+    elif step in ANDVARI_STEPS:
+        suffix = _artifact_key_suffix(step)
         generated_repo = run_dir / "artifacts" / "generated-repo"
         logs_dir = run_dir / "artifacts" / "andvari" / "logs"
         report_dir = run_dir / "artifacts" / "andvari" / "report"
         if generated_repo.exists():
-            records["generated_repo"] = ArtifactRecord(
+            records[f"generated_repo{suffix}"] = ArtifactRecord(
                 owner=step, path=str(generated_repo)
             )
         if logs_dir.exists():
-            records["andvari_logs"] = ArtifactRecord(owner=step, path=str(logs_dir))
+            records[f"andvari_logs{suffix}"] = ArtifactRecord(
+                owner=step, path=str(logs_dir)
+            )
         if report_dir.exists():
-            records["andvari_report_dir"] = ArtifactRecord(
+            records[f"andvari_report_dir{suffix}"] = ArtifactRecord(
                 owner=step, path=str(report_dir)
             )
-    elif step == STEP_MIMIR:
-        records["mimir_report"] = ArtifactRecord(owner=step, path=str(report_path))
+    elif step in MIMIR_STEPS:
+        suffix = _artifact_key_suffix(step)
+        records[f"mimir{suffix}_report"] = ArtifactRecord(
+            owner=step, path=str(report_path)
+        )
         comparison_dir = run_dir / "artifacts" / "comparisons"
         if comparison_dir.exists():
             aggregate_path = comparison_dir / "aggregate.json"
             if aggregate_path.exists():
-                records["diagram_comparison_aggregate"] = ArtifactRecord(
+                records[f"diagram_comparison_aggregate{suffix}"] = ArtifactRecord(
                     owner=step, path=str(aggregate_path)
                 )
             for artifact_path in sorted(comparison_dir.glob("*.json")):
@@ -389,19 +494,23 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
                 records[f"diagram_comparison_{artifact_path.stem}"] = ArtifactRecord(
                     owner=step, path=str(artifact_path)
                 )
-    elif step == STEP_KVASIR:
-        records["kvasir_report"] = ArtifactRecord(owner=step, path=str(report_path))
+    elif step in KVASIR_STEPS:
+        suffix = _artifact_key_suffix(step)
+        records[f"kvasir{suffix}_report"] = ArtifactRecord(
+            owner=step, path=str(report_path)
+        )
         ported_repo = run_dir / "artifacts" / "ported-tests-repo"
         if ported_repo.exists():
-            records["ported_tests_repo"] = ArtifactRecord(
+            records[f"ported_tests_repo{suffix}"] = ArtifactRecord(
                 owner=step, path=str(ported_repo)
             )
     elif step == STEP_LIDSKJALV_ORIGINAL:
         records["lidskjalv_original_report"] = ArtifactRecord(
             owner=step, path=str(report_path)
         )
-    elif step == STEP_LIDSKJALV_GENERATED:
-        records["lidskjalv_generated_report"] = ArtifactRecord(
+    elif step in LIDSKJALV_GENERATED_STEPS:
+        suffix = _artifact_key_suffix(step)
+        records[f"lidskjalv_generated{suffix}_report"] = ArtifactRecord(
             owner=step, path=str(report_path)
         )
     return records
@@ -421,22 +530,71 @@ def _brokk_original_repo(run_root: Path) -> Path:
     return run_root / "services" / "brokk" / "run" / "artifacts" / "original-repo"
 
 
-def _eitri_diagram(run_root: Path) -> Path:
+def _eitri_diagram_variant(run_root: Path, filename: str) -> Path:
+    return run_root / "services" / "eitri" / "run" / "artifacts" / "model" / filename
+
+
+def _eitri_diagram_for_andvari_step(run_root: Path, step: str) -> Path:
+    return _eitri_diagram_variant(run_root, _diagram_filename_for_branch_step(step))
+
+
+def _eitri_diagram_for_kvasir_step(run_root: Path, step: str) -> Path:
+    return _eitri_diagram_variant(run_root, _diagram_filename_for_branch_step(step))
+
+
+def _andvari_generated_repo_for_eitri_step(run_root: Path, step: str) -> Path:
+    return _andvari_generated_repo_for_branch_suffix(run_root, _branch_suffix(step))
+
+
+def _andvari_generated_repo_for_kvasir_step(run_root: Path, step: str) -> Path:
+    return _andvari_generated_repo_for_branch_suffix(run_root, _branch_suffix(step))
+
+
+def _andvari_generated_repo_for_branch_suffix(run_root: Path, suffix: str) -> Path:
+    service_dir = "andvari" if suffix == "" else f"andvari-{suffix}"
     return (
-        run_root / "services" / "eitri" / "run" / "artifacts" / "model" / "diagram.puml"
+        run_root
+        / "services"
+        / service_dir
+        / "run"
+        / "artifacts"
+        / "generated-repo"
     )
 
 
-def _eitri_model_dir(run_root: Path) -> Path:
-    return run_root / "services" / "eitri" / "run" / "artifacts" / "model"
+def _kvasir_ported_tests_repo_for_lidskjalv_step(run_root: Path, step: str) -> Path:
+    suffix = _branch_suffix(step)
+    service_dir = "kvasir" if suffix == "" else f"kvasir-{suffix}"
+    return (
+        run_root
+        / "services"
+        / service_dir
+        / "run"
+        / "artifacts"
+        / "ported-tests-repo"
+    )
 
 
-def _andvari_generated_repo(run_root: Path) -> Path:
-    return run_root / "services" / "andvari" / "run" / "artifacts" / "generated-repo"
+def _diagram_filename_for_branch_step(step: str) -> str:
+    suffix = _branch_suffix(step)
+    if suffix == "v2":
+        return "diagram_v2.puml"
+    if suffix == "v3":
+        return "diagram_v3.puml"
+    return "diagram.puml"
 
 
-def _kvasir_ported_tests_repo(run_root: Path) -> Path:
-    return run_root / "services" / "kvasir" / "run" / "artifacts" / "ported-tests-repo"
+def _branch_suffix(step: str) -> str:
+    if step.endswith("-v2"):
+        return "v2"
+    if step.endswith("-v3"):
+        return "v3"
+    return ""
+
+
+def _artifact_key_suffix(step: str) -> str:
+    suffix = _branch_suffix(step)
+    return f"_{suffix}" if suffix else ""
 
 
 def _sonar_token() -> str | None:

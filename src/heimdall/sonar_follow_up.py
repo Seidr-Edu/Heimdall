@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from heimdall.adapters import STEP_DEFINITIONS
-from heimdall.models import STEP_LIDSKJALV_GENERATED, STEP_LIDSKJALV_ORIGINAL, StepState
+from heimdall.models import (
+    STEP_LIDSKJALV_GENERATED,
+    STEP_LIDSKJALV_GENERATED_V2,
+    STEP_LIDSKJALV_GENERATED_V3,
+    STEP_LIDSKJALV_ORIGINAL,
+    StepState,
+)
 from heimdall.reporting import load_report
 from heimdall.utils import timestamp_utc, write_text
 
@@ -23,7 +29,12 @@ SONAR_MEASURE_KEYS = (
     "reliability_rating,security_rating,sqale_rating,ncloc,sqale_index"
 )
 _FOLLOW_UP_TERMINAL_STATUSES = {"complete", "failed", "skipped"}
-_FOLLOW_UP_STEPS = (STEP_LIDSKJALV_ORIGINAL, STEP_LIDSKJALV_GENERATED)
+_FOLLOW_UP_STEPS = (
+    STEP_LIDSKJALV_ORIGINAL,
+    STEP_LIDSKJALV_GENERATED,
+    STEP_LIDSKJALV_GENERATED_V2,
+    STEP_LIDSKJALV_GENERATED_V3,
+)
 
 
 def sonar_follow_up_path(run_root: Path) -> Path:
@@ -490,6 +501,10 @@ def _overall_status(entries: Any) -> str:
 def _scan_label_for_step(step: str) -> str:
     if step == STEP_LIDSKJALV_GENERATED:
         return "generated"
+    if step == STEP_LIDSKJALV_GENERATED_V2:
+        return "generated-v2"
+    if step == STEP_LIDSKJALV_GENERATED_V3:
+        return "generated-v3"
     return "original"
 
 

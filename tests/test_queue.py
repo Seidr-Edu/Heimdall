@@ -319,6 +319,18 @@ class QueueIntegrationTest(unittest.TestCase):
             ],
             "pending",
         )
+        self.assertEqual(
+            finished_document["sonar_follow_up"]["steps"]["lidskjalv-generated-v2"][
+                "status"
+            ],
+            "pending",
+        )
+        self.assertEqual(
+            finished_document["sonar_follow_up"]["steps"]["lidskjalv-generated-v3"][
+                "status"
+            ],
+            "pending",
+        )
 
     def test_submit_shells_out_over_ssh(self) -> None:
         overrides_path = self.root / "overrides.yaml"

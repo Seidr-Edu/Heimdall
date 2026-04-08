@@ -13,11 +13,21 @@ JobStatus = Literal["pending", "running", "passed", "failed", "error"]
 STEP_BROKK = "brokk"
 STEP_EITRI = "eitri"
 STEP_EITRI_GENERATED = "eitri-generated"
+STEP_EITRI_GENERATED_V2 = "eitri-generated-v2"
+STEP_EITRI_GENERATED_V3 = "eitri-generated-v3"
 STEP_ANDVARI = "andvari"
+STEP_ANDVARI_V2 = "andvari-v2"
+STEP_ANDVARI_V3 = "andvari-v3"
 STEP_MIMIR = "mimir"
+STEP_MIMIR_V2 = "mimir-v2"
+STEP_MIMIR_V3 = "mimir-v3"
 STEP_KVASIR = "kvasir"
+STEP_KVASIR_V2 = "kvasir-v2"
+STEP_KVASIR_V3 = "kvasir-v3"
 STEP_LIDSKJALV_ORIGINAL = "lidskjalv-original"
 STEP_LIDSKJALV_GENERATED = "lidskjalv-generated"
+STEP_LIDSKJALV_GENERATED_V2 = "lidskjalv-generated-v2"
+STEP_LIDSKJALV_GENERATED_V3 = "lidskjalv-generated-v3"
 
 ALL_STEPS = (
     STEP_BROKK,
@@ -28,6 +38,16 @@ ALL_STEPS = (
     STEP_MIMIR,
     STEP_KVASIR,
     STEP_LIDSKJALV_GENERATED,
+    STEP_ANDVARI_V2,
+    STEP_EITRI_GENERATED_V2,
+    STEP_MIMIR_V2,
+    STEP_KVASIR_V2,
+    STEP_LIDSKJALV_GENERATED_V2,
+    STEP_ANDVARI_V3,
+    STEP_EITRI_GENERATED_V3,
+    STEP_MIMIR_V3,
+    STEP_KVASIR_V3,
+    STEP_LIDSKJALV_GENERATED_V3,
 )
 
 
@@ -163,6 +183,7 @@ class StepDefinition:
     depends_on: tuple[str, ...]
     service_dir_name: str
     report_relative_path: str
+    order_after: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
