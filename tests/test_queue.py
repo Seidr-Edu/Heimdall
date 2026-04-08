@@ -266,6 +266,98 @@ class QueueIntegrationTest(unittest.TestCase):
         self.assertEqual(finished_document["pipeline"]["status"], "passed")
         self.assertIn("brokk", finished_document["pipeline"]["steps"])
 
+    def test_status_reports_live_pipeline_for_running_job(self) -> None:
+        job_id = self._enqueue_job()
+        job_dir = self.queue_root / "jobs" / job_id
+
+        os.replace(
+            self.queue_root / "pending" / job_id, self.queue_root / "running" / job_id
+        )
+        job_document = self._load_yaml_file(job_dir / "job.yaml")
+        job_document["status"] = "running"
+        job_document["started_at"] = "2026-03-12T12:00:00Z"
+        write_file(job_dir / "job.yaml", dumps(job_document))
+
+        state_path = self.runs_root / job_id / "pipeline" / "state.json"
+        write_file(
+            state_path,
+            json.dumps(
+                {
+                    "schema_version": "heimdall_state.v1",
+                    "steps": {
+                        "brokk": {
+                            "status": "passed",
+                            "reason": None,
+                            "blocked_by": [],
+                            "started_at": "2026-03-12T12:00:01Z",
+                            "finished_at": "2026-03-12T12:00:05Z",
+                            "configured_image_ref": "fake/brokk:1",
+                            "resolved_image_id": "sha256:brokk",
+                            "fingerprint": "fp-brokk",
+                            "report_path": "/tmp/brokk-report.json",
+                            "report_status": "passed",
+                        },
+                        "eitri": {
+                            "status": "running",
+                            "reason": None,
+                            "blocked_by": [],
+                            "started_at": "2026-03-12T12:00:06Z",
+                            "finished_at": None,
+                            "configured_image_ref": None,
+                            "resolved_image_id": None,
+                            "fingerprint": None,
+                            "report_path": None,
+                            "report_status": None,
+                        },
+                        "andvari": {
+                            "status": "blocked",
+                            "reason": "blocked-by-upstream",
+                            "blocked_by": ["eitri"],
+                            "started_at": "2026-03-12T12:00:07Z",
+                            "finished_at": "2026-03-12T12:00:07Z",
+                            "configured_image_ref": "fake/andvari:1",
+                            "resolved_image_id": "sha256:andvari",
+                            "fingerprint": "fp-andvari",
+                            "report_path": "/tmp/andvari-report.json",
+                            "report_status": None,
+                        },
+                    },
+                    "artifacts": {},
+                },
+                indent=2,
+            )
+            + "\n",
+        )
+
+        running = self._run_cli(
+            [
+                "status",
+                "--worker-config",
+                str(self.worker_config_path),
+                job_id,
+            ]
+        )
+        self.assertEqual(running.returncode, 0, running.stderr)
+        running_document = self._load_yaml_text(running.stdout)
+        self.assertEqual(running_document["status"], "running")
+        self.assertEqual(running_document["pipeline"]["status"], "running")
+        self.assertEqual(
+            running_document["pipeline"]["started_at"], "2026-03-12T12:00:00Z"
+        )
+        self.assertEqual(
+            running_document["pipeline"]["steps"]["brokk"]["status"], "passed"
+        )
+        self.assertEqual(
+            running_document["pipeline"]["steps"]["eitri"]["status"], "running"
+        )
+        self.assertEqual(
+            running_document["pipeline"]["steps"]["andvari"]["blocked_by"], ["eitri"]
+        )
+        self.assertEqual(
+            running_document["pipeline_state_path"],
+            str(state_path.resolve()),
+        )
+
     def test_status_reports_pending_sonar_follow_up_for_async_submission(self) -> None:
         write_file(
             self.worker_config_path,
@@ -331,6 +423,38 @@ class QueueIntegrationTest(unittest.TestCase):
             ],
             "pending",
         )
+
+    def test_worker_finalizes_from_pipeline_report_on_step_command_failure(
+        self,
+    ) -> None:
+        job_id = self._enqueue_job()
+
+        worker = self._run_cli(
+            [
+                "worker",
+                "--worker-config",
+                str(self.worker_config_path),
+                "--once",
+            ],
+            extra_env={"FAKE_DOCKER_EITRI_MODE": "command-fail"},
+        )
+        self.assertEqual(worker.returncode, 0, worker.stderr)
+
+        job_document = self._load_yaml_file(
+            self.queue_root / "jobs" / job_id / "job.yaml"
+        )
+        self.assertEqual(job_document["status"], "error")
+        self.assertEqual(job_document["pipeline_status"], "error")
+        self.assertIn("fake docker command failure for eitri", job_document["reason"])
+
+        report = json.loads(
+            (
+                self.runs_root / job_id / "pipeline" / "outputs" / "run_report.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["eitri"]["status"], "error")
+        self.assertTrue((self.queue_root / "failed" / job_id).is_file())
 
     def test_submit_shells_out_over_ssh(self) -> None:
         overrides_path = self.root / "overrides.yaml"

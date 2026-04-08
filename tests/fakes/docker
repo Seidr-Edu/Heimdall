@@ -136,6 +136,9 @@ def _handle_run(args: list[str]) -> int:
     _mutate_state(update)
 
     _maybe_sleep(step)
+    if mode == "command-fail":
+        print(f"fake docker command failure for {step}", file=sys.stderr)
+        return 1
     if mode == "missing-report":
         return 0
     if step.startswith("smoke-"):
@@ -443,6 +446,12 @@ def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
     elif mode == "error-report":
         status = "error"
         reason = "fake-eitri-error"
+    elif mode == "invalid-report":
+        invalid_report_path = run_root / "outputs" / "run_report.json"
+        invalid_report_path.parent.mkdir(parents=True, exist_ok=True)
+        invalid_report_path.write_text("{\n", encoding="utf-8")
+        _write_summary(run_root / "outputs" / "summary.md", "Eitri")
+        return
     _write_json(
         run_root / "outputs" / "run_report.json",
         {

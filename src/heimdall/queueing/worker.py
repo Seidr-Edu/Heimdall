@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 
 from heimdall.execution import (
@@ -22,9 +23,16 @@ from heimdall.manifests.queue import (
     dump_queue_request,
     load_queue_request,
 )
-from heimdall.models import JobStatus, QueueRequest, RuntimeConfig, WorkerConfig
+from heimdall.models import (
+    JobStatus,
+    QueueRequest,
+    RuntimeConfig,
+    StepState,
+    WorkerConfig,
+)
 from heimdall.simpleyaml import YamlError, dumps, loads
 from heimdall.sonar_follow_up import sonar_follow_up_path
+from heimdall.state import load_existing_state
 from heimdall.utils import (
     compact_run_id,
     ensure_directory,
@@ -130,6 +138,13 @@ def load_job_status_document(
             "steps": report.get("steps"),
         }
         document["report_path"] = str(report_path)
+    else:
+        live_pipeline = _load_live_pipeline_document(document)
+        if live_pipeline is not None:
+            document["pipeline"] = live_pipeline
+            state_path = _pipeline_state_path_from_job(document)
+            if state_path is not None:
+                document["pipeline_state_path"] = str(state_path)
     sonar_path = _sonar_follow_up_path_from_job(document)
     if sonar_path is not None and sonar_path.is_file():
         document["sonar_follow_up"] = read_json(sonar_path)
@@ -219,11 +234,11 @@ def _run_pending_job(worker_config: WorkerConfig, job_id: str) -> None:
         run_root, _config = run_pipeline_manifest_path(
             _pipeline_manifest_path(worker_config, job_id), runtime
         )
+        _finalize_job_from_run_root(worker_config, job_id, run_root)
     except Exception as exc:
         _finalize_job_error(worker_config, job_id, str(exc))
         _emit_worker_log("job_failed", job_id=job_id, status="error", reason=str(exc))
         return
-    _finalize_job_from_run_root(worker_config, job_id, run_root)
 
 
 def _reconcile_running_job(worker_config: WorkerConfig, job_id: str) -> None:
@@ -243,11 +258,11 @@ def _reconcile_running_job(worker_config: WorkerConfig, job_id: str) -> None:
             resume_run_root(run_dir, runtime)
         else:
             run_dir = _run_from_queue_manifest(worker_config, job_id, runtime, job)
+        _finalize_job_from_run_root(worker_config, job_id, run_dir)
     except Exception as exc:
         _finalize_job_error(worker_config, job_id, str(exc))
         _emit_worker_log("job_failed", job_id=job_id, status="error", reason=str(exc))
         return
-    _finalize_job_from_run_root(worker_config, job_id, run_dir)
 
 
 def _finalize_job_from_run_root(
@@ -490,11 +505,60 @@ def _run_report_path_from_job(document: Mapping[str, object]) -> Path | None:
     return run_dir / "pipeline" / "outputs" / "run_report.json"
 
 
+def _pipeline_state_path_from_job(document: Mapping[str, object]) -> Path | None:
+    run_dir = _job_run_dir(document)
+    if run_dir is None:
+        return None
+    return run_dir / "pipeline" / "state.json"
+
+
 def _sonar_follow_up_path_from_job(document: Mapping[str, object]) -> Path | None:
     run_dir = _job_run_dir(document)
     if run_dir is None:
         return None
     return sonar_follow_up_path(run_dir)
+
+
+def _load_live_pipeline_document(
+    document: Mapping[str, object],
+) -> dict[str, object] | None:
+    state_path = _pipeline_state_path_from_job(document)
+    if state_path is None or not state_path.is_file():
+        return None
+    try:
+        steps = load_existing_state(state_path)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not steps:
+        return None
+    return {
+        "status": "running",
+        "reason": _live_pipeline_reason(steps),
+        "started_at": _live_pipeline_started_at(document, steps),
+        "finished_at": None,
+        "steps": {step: asdict(state) for step, state in steps.items()},
+    }
+
+
+def _live_pipeline_reason(steps: Mapping[str, StepState]) -> str | None:
+    for raw_state in steps.values():
+        reason = raw_state.reason
+        status = raw_state.status
+        if status in {"failed", "error", "blocked"} and isinstance(reason, str):
+            stripped = reason.strip()
+            if stripped:
+                return stripped
+    return None
+
+
+def _live_pipeline_started_at(
+    document: Mapping[str, object], steps: Mapping[str, StepState]
+) -> str | None:
+    started_at = document.get("started_at")
+    if isinstance(started_at, str) and started_at.strip():
+        return started_at.strip()
+    candidates = [state.started_at for state in steps.values() if state.started_at]
+    return min(candidates) if candidates else None
 
 
 def _emit_worker_log(event: str, **fields: object) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
@@ -28,13 +29,20 @@ from heimdall.models import (
     PipelineConfig,
     ResolvedImages,
     RuntimeConfig,
+    StepPrepared,
     StepResult,
     StepState,
 )
 from heimdall.reporting import write_artifact_index, write_run_outputs
 from heimdall.simpleyaml import dumps
 from heimdall.sonar_follow_up import sync_sonar_follow_up
-from heimdall.state import StateStore, fingerprint_step, hash_file, load_existing_state
+from heimdall.state import (
+    StateStore,
+    fingerprint_step,
+    hash_bytes,
+    hash_file,
+    load_existing_state,
+)
 from heimdall.utils import (
     ensure_directory,
     stage_executable_tree,
@@ -185,7 +193,7 @@ def _run_scheduler(
     reusable = _compute_reuse_plan(
         context, store.snapshot()[0], runtime_view, fresh_run
     )
-    futures: dict[Future[StepResult], str] = {}
+    futures: dict[Future[StepResult], tuple[str, str]] = {}
     finished: dict[str, StepResult] = {}
     pending = set(topological_steps())
 
@@ -225,19 +233,35 @@ def _run_scheduler(
                     if result.artifacts:
                         store.add_artifacts(result.artifacts)
                     continue
-                future = executor.submit(_execute_step, step, context, runtime_view)
-                futures[future] = step
+                started_at = timestamp_utc()
+                future = executor.submit(
+                    _execute_step,
+                    step,
+                    context,
+                    runtime_view,
+                    started_at,
+                )
+                futures[future] = (step, started_at)
                 pending.remove(step)
                 store.update_step(
-                    step, StepState(status="running", started_at=timestamp_utc())
+                    step, StepState(status="running", started_at=started_at)
                 )
                 _emit(context.runtime, f"[{step}] started")
             if not futures:
                 continue
             done, _pending_futures = wait(futures.keys(), return_when=FIRST_COMPLETED)
             for future in done:
-                step = futures.pop(future)
-                result = future.result()
+                step, started_at = futures.pop(future)
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = _error_result(
+                        step,
+                        context,
+                        runtime_view,
+                        str(exc).strip() or exc.__class__.__name__,
+                        started_at=started_at,
+                    )
                 finished[step] = result
                 store.update_step(step, _step_state_from_result(result))
                 if result.artifacts:
@@ -276,26 +300,25 @@ def _compute_reuse_plan(
         if not report_path.is_file():
             invalidated.add(step)
             continue
-        prepared = prepare_step(step, context)
-        upstream_hashes = {
-            dep: hash_file(path)
-            for dep, path in upstream_report_dependencies(
-                step, context.run_root
-            ).items()
-            if path.is_file()
-        }
-        current_fingerprint = fingerprint_step(
-            orchestrator_version=__version__,
-            step=step,
-            resolved_image_id=prepared.resolved_image_id,
-            manifest_text=prepared.manifest_text,
-            upstream_report_hashes=upstream_hashes,
-            runtime_snapshot=runtime_view,
-        )
-        if current_fingerprint != previous.fingerprint:
+        try:
+            prepared = prepare_step(step, context)
+            current_fingerprint = _fingerprint_for_prepared(
+                step,
+                prepared,
+                context.run_root,
+                runtime_view,
+            )
+            if current_fingerprint != previous.fingerprint:
+                invalidated.add(step)
+                continue
+            status, reason, artifacts = classify_report(step, report_path)
+        except Exception as exc:
             invalidated.add(step)
+            _emit(
+                context.runtime,
+                f"[{step}] cannot reuse passed step: {str(exc).strip() or exc.__class__.__name__}",
+            )
             continue
-        status, reason, artifacts = classify_report(step, report_path)
         reusable[step] = StepResult(
             step=step,
             status="skipped",
@@ -313,24 +336,17 @@ def _compute_reuse_plan(
 
 
 def _execute_step(
-    step: str, context: AdapterContext, runtime_view: dict[str, object]
+    step: str,
+    context: AdapterContext,
+    runtime_view: dict[str, object],
+    started_at: str,
 ) -> StepResult:
-    prepared = prepare_step(step, context)
-    started_at = timestamp_utc()
+    _reset_step_run_dir(step, context.run_root)
     log_path = context.run_root / "pipeline" / "logs" / f"{step}.log"
     write_text(log_path, "")
-    upstream_hashes = {
-        dep: hash_file(path)
-        for dep, path in upstream_report_dependencies(step, context.run_root).items()
-        if path.is_file()
-    }
-    fingerprint = fingerprint_step(
-        orchestrator_version=__version__,
-        step=step,
-        resolved_image_id=prepared.resolved_image_id,
-        manifest_text=prepared.manifest_text,
-        upstream_report_hashes=upstream_hashes,
-        runtime_snapshot=runtime_view,
+    prepared = prepare_step(step, context)
+    fingerprint = _fingerprint_for_prepared(
+        step, prepared, context.run_root, runtime_view
     )
     if (
         prepared.provider_bin_source is not None
@@ -389,6 +405,106 @@ def _execute_step(
     )
 
 
+def _fingerprint_for_prepared(
+    step: str,
+    prepared: StepPrepared,
+    run_root: Path,
+    runtime_view: dict[str, object],
+) -> str:
+    upstream_hashes = {
+        dep: hash_file(path)
+        for dep, path in upstream_report_dependencies(step, run_root).items()
+        if path.is_file()
+    }
+    return fingerprint_step(
+        orchestrator_version=__version__,
+        step=step,
+        resolved_image_id=prepared.resolved_image_id,
+        manifest_text=prepared.manifest_text,
+        upstream_report_hashes=upstream_hashes,
+        runtime_snapshot=runtime_view,
+    )
+
+
+def _error_result(
+    step: str,
+    context: AdapterContext,
+    runtime_view: dict[str, object],
+    reason: str,
+    *,
+    started_at: str,
+) -> StepResult:
+    prepared: StepPrepared | None = None
+    try:
+        prepared = prepare_step(step, context, stage_inputs=False)
+    except Exception:
+        prepared = None
+    finished_at = timestamp_utc()
+    if prepared is not None:
+        return StepResult(
+            step=step,
+            status="error",
+            reason=reason,
+            report_status=_read_report_status(prepared.report_path),
+            report_path=prepared.report_path,
+            fingerprint=_fingerprint_for_prepared(
+                step,
+                prepared,
+                context.run_root,
+                runtime_view,
+            ),
+            configured_image_ref=prepared.configured_image_ref,
+            resolved_image_id=prepared.resolved_image_id,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+
+    service_dir = STEP_DEFINITIONS[step].service_dir_name
+    report_path = (
+        context.run_root
+        / "services"
+        / service_dir
+        / "run"
+        / STEP_DEFINITIONS[step].report_relative_path
+    )
+    configured_image_ref, resolved_image_id = _image_details_for_step(step, context)
+    fingerprint_payload = {
+        "schema_version": "heimdall_step_error_fingerprint.v1",
+        "step": step,
+        "reason": reason,
+        "runtime_snapshot": runtime_view,
+        "resolved_image_id": resolved_image_id,
+    }
+    return StepResult(
+        step=step,
+        status="error",
+        reason=reason,
+        report_status=_read_report_status(report_path),
+        report_path=report_path,
+        fingerprint=hash_bytes(
+            json.dumps(fingerprint_payload, sort_keys=True).encode("utf-8")
+        ),
+        configured_image_ref=configured_image_ref,
+        resolved_image_id=resolved_image_id,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+
+
+def _image_details_for_step(step: str, context: AdapterContext) -> tuple[str, str]:
+    if step == "brokk":
+        return context.config.images.brokk, context.resolved_images.brokk
+    if step == "eitri" or step.startswith("eitri-generated"):
+        return context.config.images.eitri, context.resolved_images.eitri
+    if step.startswith("andvari"):
+        return context.config.images.andvari, context.resolved_images.andvari
+    if step.startswith("mimir"):
+        return context.config.images.mimir, context.resolved_images.mimir
+    if step.startswith("kvasir"):
+        return context.config.images.kvasir, context.resolved_images.kvasir
+    return context.config.images.lidskjalv, context.resolved_images.lidskjalv
+
+
 def _read_report_status(path: Path) -> str | None:
     import json
 
@@ -407,19 +523,8 @@ def _blocked_result(
     runtime_view: dict[str, object],
 ) -> StepResult:
     prepared = prepare_step(step, context, stage_inputs=False)
-    fingerprint = fingerprint_step(
-        orchestrator_version=__version__,
-        step=step,
-        resolved_image_id=prepared.resolved_image_id,
-        manifest_text=prepared.manifest_text,
-        upstream_report_hashes={
-            dep: hash_file(path)
-            for dep, path in upstream_report_dependencies(
-                step, context.run_root
-            ).items()
-            if path.is_file()
-        },
-        runtime_snapshot=runtime_view,
+    fingerprint = _fingerprint_for_prepared(
+        step, prepared, context.run_root, runtime_view
     )
     now = timestamp_utc()
     return StepResult(
@@ -467,6 +572,13 @@ def _stage_service_roots(run_root: Path) -> None:
         ensure_directory(service_root, 0o755)
         ensure_directory(service_root / "config", 0o755)
         ensure_directory(service_root / "run", 0o777)
+
+
+def _reset_step_run_dir(step: str, run_root: Path) -> None:
+    run_dir = run_root / "services" / STEP_DEFINITIONS[step].service_dir_name / "run"
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    ensure_directory(run_dir, 0o777)
 
 
 def _write_resolved(

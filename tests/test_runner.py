@@ -186,6 +186,109 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["kvasir-v3"]["status"], "blocked")
         self.assertEqual(report["steps"]["lidskjalv-generated-v3"]["status"], "blocked")
 
+    def test_command_failure_marks_step_error_and_writes_pipeline_report(self) -> None:
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_EITRI_MODE": "command-fail"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report_path = run_root / "pipeline" / "outputs" / "run_report.json"
+        self.assertTrue(report_path.is_file())
+
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["eitri"]["status"], "error")
+        self.assertIn(
+            "fake docker command failure for eitri",
+            report["steps"]["eitri"]["reason"],
+        )
+        self.assertEqual(report["steps"]["andvari"]["status"], "blocked")
+        self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
+
+    def test_invalid_report_marks_step_error_and_writes_pipeline_report(self) -> None:
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_EITRI_MODE": "invalid-report"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report_path = run_root / "pipeline" / "outputs" / "run_report.json"
+        self.assertTrue(report_path.is_file())
+
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["eitri"]["status"], "error")
+        self.assertIn("Invalid JSON report", report["steps"]["eitri"]["reason"])
+        self.assertEqual(report["steps"]["andvari"]["status"], "blocked")
+        self.assertEqual(report["steps"]["kvasir"]["status"], "blocked")
+
+    def test_resume_cleans_rerun_workdir_before_missing_report(self) -> None:
+        first = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        stale_report_path = (
+            run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"
+        )
+        self.assertTrue(stale_report_path.is_file())
+
+        set_fake_image_id(self.state_path, "fake/kvasir:1", "sha256:changed-kvasir")
+        resumed = self._run_cli(
+            [
+                "resume",
+                str(run_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_KVASIR_MODE": "missing-report"},
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertFalse(stale_report_path.exists())
+
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["kvasir"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["kvasir"]["reason"], "missing-canonical-report"
+        )
+        self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "blocked")
+
     def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
         write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
