@@ -288,9 +288,7 @@ class AdapterTest(unittest.TestCase):
             generated_eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
         )
         self.assertEqual(
-            generated_eitri_manifest["writers"]["plantuml"][
-                "generateDegradedDiagrams"
-            ],
+            generated_eitri_manifest["writers"]["plantuml"]["generateDegradedDiagrams"],
             False,
         )
         self.assertEqual(

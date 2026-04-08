@@ -415,9 +415,7 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             eitri_manifest["writers"]["plantuml"],
         )
         self.assertEqual(
-            generated_eitri_manifest["writers"]["plantuml"][
-                "generateDegradedDiagrams"
-            ],
+            generated_eitri_manifest["writers"]["plantuml"]["generateDegradedDiagrams"],
             False,
         )
         self.assertEqual(
