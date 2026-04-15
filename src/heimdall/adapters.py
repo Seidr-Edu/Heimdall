@@ -381,6 +381,8 @@ def classify_report(
         report = load_report(report_path)
     except RuntimeError:
         return "error", "invalid-canonical-report", _artifact_records(step, report_path)
+    if not isinstance(report, Mapping):
+        return "error", "invalid-canonical-report", _artifact_records(step, report_path)
     report_status = normalized_report_status(step, report)
     reason = _classify_reason(step, report)
     success = _is_success(step, report)

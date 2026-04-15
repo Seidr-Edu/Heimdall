@@ -352,6 +352,8 @@ def _execute_step(
             prepared.provider_seed_source,
             prepared.provider_seed_dest,
         )
+    if prepared.report_path.exists():
+        prepared.report_path.unlink()
     run_container(
         prepared.configured_image_ref,
         prepared.env,

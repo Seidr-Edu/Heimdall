@@ -187,6 +187,49 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["kvasir-v3"]["status"], "blocked")
         self.assertEqual(report["steps"]["lidskjalv-generated-v3"]["status"], "blocked")
 
+    def test_resume_missing_report_does_not_reuse_stale_report_file(self) -> None:
+        first = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        set_fake_image_id(self.state_path, "fake/kvasir:1", "sha256:changed-kvasir")
+
+        resumed = self._run_cli(
+            [
+                "resume",
+                str(run_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_KVASIR_MODE": "missing-report"},
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["kvasir"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["kvasir"]["reason"], "missing-canonical-report"
+        )
+        self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "passed")
+
     def test_kvasir_missing_report_uses_generated_repo_fallback(self) -> None:
         completed = self._run_cli(
             [

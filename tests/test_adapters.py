@@ -505,6 +505,20 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(status, "passed")
         self.assertIsNone(reason)
 
+    def test_classify_report_rejects_non_object_json_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "services" / "andvari" / "run"
+            report_path = run_dir / "outputs" / "run_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            write_file(report_path, "[]\n")
+
+            status, reason, artifacts = classify_report("andvari", report_path)
+
+        self.assertEqual(status, "error")
+        self.assertEqual(reason, "invalid-canonical-report")
+        self.assertEqual(artifacts, {})
+
     def test_prepare_mimir_manifest_and_mounts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
