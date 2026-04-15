@@ -10,6 +10,7 @@ from heimdall.adapters import (
     STEP_DEFINITIONS,
     AdapterContext,
     classify_report,
+    normalized_report_status,
     prepare_step,
     step_definitions,
     topological_steps,
@@ -259,7 +260,10 @@ def _compute_reuse_plan(
     reusable: dict[str, StepResult] = {}
     invalidated: set[str] = set()
     for step in topological_steps():
-        if any(dep in invalidated for dep in STEP_DEFINITIONS[step].depends_on):
+        upstream_dependencies = tuple(
+            upstream_report_dependencies(step, context.run_root).keys()
+        )
+        if any(dep in invalidated for dep in upstream_dependencies):
             invalidated.add(step)
             continue
         previous = existing_state.get(step)
@@ -348,6 +352,8 @@ def _execute_step(
             prepared.provider_seed_source,
             prepared.provider_seed_dest,
         )
+    if prepared.report_path.is_file() or prepared.report_path.is_symlink():
+        prepared.report_path.unlink(missing_ok=True)
     run_container(
         prepared.configured_image_ref,
         prepared.env,
@@ -378,7 +384,7 @@ def _execute_step(
         step=step,
         status=status,
         reason=reason,
-        report_status=_read_report_status(prepared.report_path),
+        report_status=_read_report_status(step, prepared.report_path),
         report_path=prepared.report_path,
         fingerprint=fingerprint,
         configured_image_ref=prepared.configured_image_ref,
@@ -389,15 +395,14 @@ def _execute_step(
     )
 
 
-def _read_report_status(path: Path) -> str | None:
-    import json
-
+def _read_report_status(step: str, path: Path) -> str | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    raw = payload.get("status")
-    return str(raw) if raw is not None else None
+    if not isinstance(payload, dict):
+        return None
+    return normalized_report_status(step, payload)
 
 
 def _blocked_result(

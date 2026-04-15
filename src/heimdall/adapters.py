@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -162,21 +163,24 @@ STEP_DEFINITIONS: dict[str, StepDefinition] = {
     ),
     STEP_LIDSKJALV_GENERATED: StepDefinition(
         name=STEP_LIDSKJALV_GENERATED,
-        depends_on=(STEP_KVASIR,),
+        depends_on=(STEP_ANDVARI,),
         service_dir_name="lidskjalv-generated",
         report_relative_path="outputs/run_report.json",
+        order_after=(STEP_KVASIR,),
     ),
     STEP_LIDSKJALV_GENERATED_V2: StepDefinition(
         name=STEP_LIDSKJALV_GENERATED_V2,
-        depends_on=(STEP_KVASIR_V2,),
+        depends_on=(STEP_ANDVARI_V2,),
         service_dir_name="lidskjalv-generated-v2",
         report_relative_path="outputs/run_report.json",
+        order_after=(STEP_KVASIR_V2,),
     ),
     STEP_LIDSKJALV_GENERATED_V3: StepDefinition(
         name=STEP_LIDSKJALV_GENERATED_V3,
-        depends_on=(STEP_KVASIR_V3,),
+        depends_on=(STEP_ANDVARI_V3,),
         service_dir_name="lidskjalv-generated-v3",
         report_relative_path="outputs/run_report.json",
+        order_after=(STEP_KVASIR_V3,),
     ),
 }
 
@@ -328,7 +332,7 @@ def prepare_step(
             if context.runtime.sonar_organization is not None:
                 env["SONAR_ORGANIZATION"] = context.runtime.sonar_organization
         input_repo = (
-            _kvasir_ported_tests_repo_for_lidskjalv_step(context.run_root, step)
+            _lidskjalv_generated_input_repo(context.run_root, step)
             if generated
             else _brokk_original_repo(context.run_root)
         )
@@ -373,10 +377,21 @@ def prepare_step(
 def classify_report(
     step: str, report_path: Path
 ) -> tuple[StepStatus, str | None, dict[str, ArtifactRecord]]:
-    report = load_report(report_path)
-    report_status = str(report.get("status", "")).strip() or None
+    try:
+        report = load_report(report_path)
+    except RuntimeError:
+        return "error", "invalid-canonical-report", _artifact_records(step, report_path)
+    if not isinstance(report, Mapping):
+        return "error", "invalid-canonical-report", _artifact_records(step, report_path)
+    report_status = normalized_report_status(step, report)
     reason = _classify_reason(step, report)
     success = _is_success(step, report)
+    if report_status is None:
+        return (
+            "error",
+            reason or "invalid-canonical-report",
+            _artifact_records(step, report_path),
+        )
     if success:
         return "passed", reason, _artifact_records(step, report_path)
     if report_status == "error":
@@ -384,26 +399,74 @@ def classify_report(
     return "failed", reason, _artifact_records(step, report_path)
 
 
+def normalized_report_status(step: str, report: Mapping[str, object]) -> str | None:
+    if step in KVASIR_STEPS:
+        result = report.get("result")
+        if isinstance(result, Mapping):
+            raw = result.get("status")
+            if raw is not None and str(raw).strip():
+                return str(raw).strip()
+    raw = report.get("status")
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value or None
+
+
 def _is_success(step: str, report: dict[str, object]) -> bool:
     if step in KVASIR_STEPS:
         return (
-            report.get("status") == "passed"
-            and report.get("behavioral_verdict") == "pass"
+            normalized_report_status(step, report) == "passed"
+            and _normalized_kvasir_verdict(report) == "no_difference_detected"
         )
-    return report.get("status") == "passed"
+    return normalized_report_status(step, report) == "passed"
 
 
 def _classify_reason(step: str, report: dict[str, object]) -> str | None:
-    reason = report.get("reason")
+    reason = _normalized_report_reason(step, report)
     if reason:
         return str(reason)
-    if (
-        step in KVASIR_STEPS
-        and report.get("status") == "passed"
-        and report.get("behavioral_verdict") != "pass"
-    ):
-        return "behavioral-verdict-not-pass"
+    if step in KVASIR_STEPS:
+        verdict = _normalized_kvasir_verdict(report)
+        if normalized_report_status(step, report) == "passed" and verdict not in {
+            None,
+            "no_difference_detected",
+        }:
+            return f"kvasir-verdict-{verdict}"
+    if normalized_report_status(step, report) is None:
+        return "invalid-canonical-report"
     return None
+
+
+def _normalized_report_reason(step: str, report: Mapping[str, object]) -> str | None:
+    if step in KVASIR_STEPS:
+        result = report.get("result")
+        if isinstance(result, Mapping):
+            raw = result.get("reason")
+            if raw is not None and str(raw).strip():
+                return str(raw).strip()
+    raw = report.get("reason")
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value or None
+
+
+def _normalized_kvasir_verdict(report: Mapping[str, object]) -> str | None:
+    result = report.get("result")
+    if isinstance(result, Mapping):
+        raw = result.get("verdict")
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    legacy = report.get("behavioral_verdict")
+    if legacy is None:
+        return None
+    value = str(legacy).strip()
+    if value == "pass":
+        return "no_difference_detected"
+    if value == "fail":
+        return "difference_detected"
+    return value or None
 
 
 def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]:
@@ -523,6 +586,11 @@ def upstream_report_dependencies(step: str, run_root: Path) -> dict[str, Path]:
         service_dir = STEP_DEFINITIONS[dependency].service_dir_name
         rel_path = STEP_DEFINITIONS[dependency].report_relative_path
         mapping[dependency] = base / service_dir / "run" / rel_path
+    if step in LIDSKJALV_GENERATED_STEPS:
+        kvasir_step = _kvasir_step_for_generated_lidskjalv(step)
+        service_dir = STEP_DEFINITIONS[kvasir_step].service_dir_name
+        rel_path = STEP_DEFINITIONS[kvasir_step].report_relative_path
+        mapping[kvasir_step] = base / service_dir / "run" / rel_path
     return mapping
 
 
@@ -561,6 +629,46 @@ def _kvasir_ported_tests_repo_for_lidskjalv_step(run_root: Path, step: str) -> P
     return (
         run_root / "services" / service_dir / "run" / "artifacts" / "ported-tests-repo"
     )
+
+
+def _kvasir_report_for_lidskjalv_step(run_root: Path, step: str) -> Path:
+    kvasir_step = _kvasir_step_for_generated_lidskjalv(step)
+    definition = STEP_DEFINITIONS[kvasir_step]
+    return (
+        run_root
+        / "services"
+        / definition.service_dir_name
+        / "run"
+        / definition.report_relative_path
+    )
+
+
+def _has_valid_kvasir_report_for_lidskjalv_step(run_root: Path, step: str) -> bool:
+    report_path = _kvasir_report_for_lidskjalv_step(run_root, step)
+    if not report_path.is_file():
+        return False
+    try:
+        report = load_report(report_path)
+    except RuntimeError:
+        return False
+    if not isinstance(report, Mapping):
+        return False
+    kvasir_step = _kvasir_step_for_generated_lidskjalv(step)
+    return normalized_report_status(kvasir_step, report) is not None
+
+
+def _lidskjalv_generated_input_repo(run_root: Path, step: str) -> Path:
+    promoted_repo = _kvasir_ported_tests_repo_for_lidskjalv_step(run_root, step)
+    if promoted_repo.exists() and _has_valid_kvasir_report_for_lidskjalv_step(
+        run_root, step
+    ):
+        return promoted_repo
+    return _andvari_generated_repo_for_branch_suffix(run_root, _branch_suffix(step))
+
+
+def _kvasir_step_for_generated_lidskjalv(step: str) -> str:
+    suffix = _branch_suffix(step)
+    return "kvasir" if suffix == "" else f"kvasir-{suffix}"
 
 
 def _diagram_filename_for_branch_step(step: str) -> str:
