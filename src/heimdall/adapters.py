@@ -631,9 +631,37 @@ def _kvasir_ported_tests_repo_for_lidskjalv_step(run_root: Path, step: str) -> P
     )
 
 
+def _kvasir_report_for_lidskjalv_step(run_root: Path, step: str) -> Path:
+    kvasir_step = _kvasir_step_for_generated_lidskjalv(step)
+    definition = STEP_DEFINITIONS[kvasir_step]
+    return (
+        run_root
+        / "services"
+        / definition.service_dir_name
+        / "run"
+        / definition.report_relative_path
+    )
+
+
+def _has_valid_kvasir_report_for_lidskjalv_step(run_root: Path, step: str) -> bool:
+    report_path = _kvasir_report_for_lidskjalv_step(run_root, step)
+    if not report_path.is_file():
+        return False
+    try:
+        report = load_report(report_path)
+    except RuntimeError:
+        return False
+    if not isinstance(report, Mapping):
+        return False
+    kvasir_step = _kvasir_step_for_generated_lidskjalv(step)
+    return normalized_report_status(kvasir_step, report) is not None
+
+
 def _lidskjalv_generated_input_repo(run_root: Path, step: str) -> Path:
     promoted_repo = _kvasir_ported_tests_repo_for_lidskjalv_step(run_root, step)
-    if promoted_repo.exists():
+    if promoted_repo.exists() and _has_valid_kvasir_report_for_lidskjalv_step(
+        run_root, step
+    ):
         return promoted_repo
     return _andvari_generated_repo_for_branch_suffix(run_root, _branch_suffix(step))
 

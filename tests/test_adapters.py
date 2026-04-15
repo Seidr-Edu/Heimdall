@@ -328,6 +328,25 @@ class AdapterTest(unittest.TestCase):
             )
             ported_repo.mkdir(parents=True, exist_ok=True)
             write_file(ported_repo / "README.md", "ported\n")
+            write_file(
+                root
+                / "run-root"
+                / "services"
+                / "kvasir"
+                / "run"
+                / "outputs"
+                / "test_port.json",
+                """
+{
+  "schema_version": "kvasir.test_port.v3",
+  "result": {
+    "status": "passed",
+    "verdict": "no_difference_detected"
+  }
+}
+""".strip()
+                + "\n",
+            )
             ported_repo_v2 = (
                 root
                 / "run-root"
@@ -339,6 +358,25 @@ class AdapterTest(unittest.TestCase):
             )
             ported_repo_v2.mkdir(parents=True, exist_ok=True)
             write_file(ported_repo_v2 / "README.md", "ported v2\n")
+            write_file(
+                root
+                / "run-root"
+                / "services"
+                / "kvasir-v2"
+                / "run"
+                / "outputs"
+                / "test_port.json",
+                """
+{
+  "schema_version": "kvasir.test_port.v3",
+  "result": {
+    "status": "passed",
+    "verdict": "no_difference_detected"
+  }
+}
+""".strip()
+                + "\n",
+            )
             runtime = RuntimeConfig(
                 runs_root=root / "runs",
                 codex_bin_dir=root / "provider" / "bin",

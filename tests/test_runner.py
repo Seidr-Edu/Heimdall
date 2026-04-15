@@ -230,6 +230,23 @@ class RunnerIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "passed")
 
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+        generated_mount = self._mount_host_path(
+            run_by_step["lidskjalv-generated"], "/input/repo"
+        )
+        self.assertEqual(
+            generated_mount.resolve(),
+            (
+                run_root
+                / "services"
+                / "andvari"
+                / "run"
+                / "artifacts"
+                / "generated-repo"
+            ).resolve(),
+        )
+
     def test_kvasir_missing_report_uses_generated_repo_fallback(self) -> None:
         completed = self._run_cli(
             [
