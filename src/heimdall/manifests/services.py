@@ -72,6 +72,8 @@ def build_step_manifest_payload(
         writers: Mapping[str, object] = context.config.eitri.writers
         if step in EITRI_GENERATED_STEPS:
             payload["writers"] = _generated_eitri_writers(writers)
+        elif step == STEP_EITRI:
+            payload["writers"] = _original_eitri_writers(writers)
         elif writers:
             payload["writers"] = dict(writers)
         return payload
@@ -302,6 +304,19 @@ def _generated_eitri_writers(configured: Mapping[str, object]) -> dict[str, obje
     if isinstance(plantuml, Mapping):
         plantuml_config = copy.deepcopy(dict(plantuml))
         plantuml_config["generateDegradedDiagrams"] = False
+        writers["plantuml"] = plantuml_config
+    return writers
+
+
+def _original_eitri_writers(configured: Mapping[str, object]) -> dict[str, object]:
+    writers: dict[str, object] = copy.deepcopy(dict(configured))
+    plantuml = writers.get("plantuml")
+    if plantuml is None:
+        writers["plantuml"] = {"generateDegradedDiagrams": True}
+        return writers
+    if isinstance(plantuml, Mapping):
+        plantuml_config = copy.deepcopy(dict(plantuml))
+        plantuml_config["generateDegradedDiagrams"] = True
         writers["plantuml"] = plantuml_config
     return writers
 
