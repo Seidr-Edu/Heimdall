@@ -166,6 +166,9 @@ class AdapterTest(unittest.TestCase):
             write_file(
                 eitri_model / "diagram_v2.puml", "@startuml\nclass V2\n@enduml\n"
             )
+            write_file(
+                eitri_model / "diagram_v3.puml", "@startuml\nclass V3\n@enduml\n"
+            )
             andvari_generated = (
                 root
                 / "run-root"
@@ -188,6 +191,17 @@ class AdapterTest(unittest.TestCase):
             )
             andvari_v2_generated.mkdir(parents=True, exist_ok=True)
             write_file(andvari_v2_generated / "README.md", "generated v2\n")
+            andvari_v3_generated = (
+                root
+                / "run-root"
+                / "services"
+                / "andvari-v3"
+                / "run"
+                / "artifacts"
+                / "generated-repo"
+            )
+            andvari_v3_generated.mkdir(parents=True, exist_ok=True)
+            write_file(andvari_v3_generated / "README.md", "generated v3\n")
             write_file(
                 root
                 / "run-root"
@@ -237,8 +251,12 @@ class AdapterTest(unittest.TestCase):
 
             kvasir = prepare_step("kvasir", context)
             kvasir_v2 = prepare_step("kvasir-v2", context)
+            kvasir_v3 = prepare_step("kvasir-v3", context)
             generated_eitri = prepare_step("eitri-generated", context)
             generated_eitri_v2 = prepare_step("eitri-generated-v2", context)
+            kvasir_manifest = loads(kvasir.manifest_text)
+            kvasir_v2_manifest = loads(kvasir_v2.manifest_text)
+            kvasir_v3_manifest = loads(kvasir_v3.manifest_text)
             generated_eitri_manifest = loads(generated_eitri.manifest_text)
             generated_eitri_v2_manifest = loads(generated_eitri_v2.manifest_text)
             hints = json.loads(
@@ -247,10 +265,19 @@ class AdapterTest(unittest.TestCase):
             kvasir_v2_staged_diagram = (
                 kvasir_v2.service_root / "input" / "model" / "diagram.puml"
             ).read_text(encoding="utf-8")
+            kvasir_v3_staged_diagram = (
+                kvasir_v3.service_root / "input" / "model" / "diagram.puml"
+            ).read_text(encoding="utf-8")
 
         self.assertEqual(
             kvasir.env["KVASIR_BUILD_HINTS"], "/run/config/build-hints.json"
         )
+        self.assertEqual(kvasir_manifest["diagram_relpath"], "diagram.puml")
+        self.assertEqual(kvasir_v2_manifest["diagram_relpath"], "diagram.puml")
+        self.assertEqual(kvasir_v3_manifest["diagram_relpath"], "diagram.puml")
+        self.assertNotIn("write_scope_ignore_prefixes", kvasir_manifest)
+        self.assertNotIn("write_scope_ignore_prefixes", kvasir_v2_manifest)
+        self.assertNotIn("write_scope_ignore_prefixes", kvasir_v3_manifest)
         self.assertEqual(hints["original"]["build_tool"], "maven")
         self.assertEqual(hints["original"]["build_jdk"], "8")
         self.assertEqual(hints["original"]["build_subdir"], "app")
@@ -281,6 +308,10 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(
             kvasir_v2_staged_diagram,
             "@startuml\nclass V2\n@enduml\n",
+        )
+        self.assertEqual(
+            kvasir_v3_staged_diagram,
+            "@startuml\nclass V3\n@enduml\n",
         )
         self.assertEqual(
             [

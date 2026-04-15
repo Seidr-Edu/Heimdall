@@ -45,6 +45,16 @@ LIDSKJALV_GENERATED_STEPS = (
     STEP_LIDSKJALV_GENERATED_V2,
     STEP_LIDSKJALV_GENERATED_V3,
 )
+KVASIR_BUILTIN_WRITE_SCOPE_IGNORE_PREFIXES = frozenset(
+    {
+        "./completion/proof/logs",
+        "./.mvn_repo",
+        "./.m2",
+        "./.gradle",
+        "./target",
+        "./build",
+    }
+)
 
 
 def build_step_manifest_payload(
@@ -100,10 +110,11 @@ def build_step_manifest_payload(
             payload["original_subdir"] = context.config.kvasir.original_subdir
         if context.config.kvasir.generated_subdir is not None:
             payload["generated_subdir"] = context.config.kvasir.generated_subdir
-        if context.config.kvasir.write_scope_ignore_prefixes:
-            payload["write_scope_ignore_prefixes"] = list(
-                context.config.kvasir.write_scope_ignore_prefixes
-            )
+        write_scope_ignore_prefixes = _service_manifest_kvasir_write_scope_prefixes(
+            context.config.kvasir.write_scope_ignore_prefixes
+        )
+        if write_scope_ignore_prefixes:
+            payload["write_scope_ignore_prefixes"] = write_scope_ignore_prefixes
         return payload
     if step in MIMIR_STEPS:
         diagram_sources = mimir_diagram_sources(step, context.run_root)
@@ -174,6 +185,28 @@ def build_step_runtime_hints(
     if generated:
         hints["generated"] = generated
     return hints or None
+
+
+def _service_manifest_kvasir_write_scope_prefixes(
+    prefixes: tuple[str, ...],
+) -> list[str]:
+    return [
+        prefix
+        for prefix in prefixes
+        if _normalize_repo_relative_prefix(prefix)
+        not in KVASIR_BUILTIN_WRITE_SCOPE_IGNORE_PREFIXES
+    ]
+
+
+def _normalize_repo_relative_prefix(prefix: str) -> str:
+    collapsed = "/".join(
+        part
+        for part in prefix.strip().replace("\\", "/").split("/")
+        if part not in ("", ".")
+    )
+    if not collapsed:
+        return "."
+    return f"./{collapsed}"
 
 
 def brokk_source_manifest(run_root: Path) -> Path:
