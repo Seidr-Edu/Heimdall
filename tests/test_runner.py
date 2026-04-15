@@ -247,6 +247,41 @@ class RunnerIntegrationTest(unittest.TestCase):
             ).resolve(),
         )
 
+    def test_nonzero_service_exit_with_canonical_report_does_not_crash_pipeline(
+        self,
+    ) -> None:
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_KVASIR_MODE": "nonzero-after-report"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["steps"]["kvasir"]["status"], "failed")
+        self.assertEqual(report["steps"]["kvasir"]["reason"], "invalid-service-config")
+        self.assertEqual(report["steps"]["kvasir"]["report_status"], "skipped")
+        self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "passed")
+        self.assertTrue(
+            (
+                run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"
+            ).is_file()
+        )
+
     def test_kvasir_missing_report_uses_generated_repo_fallback(self) -> None:
         completed = self._run_cli(
             [

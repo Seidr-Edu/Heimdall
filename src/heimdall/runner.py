@@ -16,7 +16,7 @@ from heimdall.adapters import (
     topological_steps,
     upstream_report_dependencies,
 )
-from heimdall.images import run_container
+from heimdall.images import DockerError, run_container
 from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
     STEP_EITRI,
@@ -29,6 +29,7 @@ from heimdall.models import (
     PipelineConfig,
     ResolvedImages,
     RuntimeConfig,
+    StepPrepared,
     StepResult,
     StepState,
 )
@@ -238,7 +239,12 @@ def _run_scheduler(
             done, _pending_futures = wait(futures.keys(), return_when=FIRST_COMPLETED)
             for future in done:
                 step = futures.pop(future)
-                result = future.result()
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = _unexpected_step_exception_result(
+                        step, context, runtime_view, exc
+                    )
                 finished[step] = result
                 store.update_step(step, _step_state_from_result(result))
                 if result.artifacts:
@@ -280,22 +286,26 @@ def _compute_reuse_plan(
         if not report_path.is_file():
             invalidated.add(step)
             continue
-        prepared = prepare_step(step, context)
-        upstream_hashes = {
-            dep: hash_file(path)
-            for dep, path in upstream_report_dependencies(
-                step, context.run_root
-            ).items()
-            if path.is_file()
-        }
-        current_fingerprint = fingerprint_step(
-            orchestrator_version=__version__,
-            step=step,
-            resolved_image_id=prepared.resolved_image_id,
-            manifest_text=prepared.manifest_text,
-            upstream_report_hashes=upstream_hashes,
-            runtime_snapshot=runtime_view,
-        )
+        try:
+            prepared = prepare_step(step, context, stage_inputs=False)
+            upstream_hashes = {
+                dep: hash_file(path)
+                for dep, path in upstream_report_dependencies(
+                    step, context.run_root
+                ).items()
+                if path.is_file()
+            }
+            current_fingerprint = fingerprint_step(
+                orchestrator_version=__version__,
+                step=step,
+                resolved_image_id=prepared.resolved_image_id,
+                manifest_text=prepared.manifest_text,
+                upstream_report_hashes=upstream_hashes,
+                runtime_snapshot=runtime_view,
+            )
+        except Exception:
+            invalidated.add(step)
+            continue
         if current_fingerprint != previous.fingerprint:
             invalidated.add(step)
             continue
@@ -319,16 +329,119 @@ def _compute_reuse_plan(
 def _execute_step(
     step: str, context: AdapterContext, runtime_view: dict[str, object]
 ) -> StepResult:
-    prepared = prepare_step(step, context)
     started_at = timestamp_utc()
     log_path = context.run_root / "pipeline" / "logs" / f"{step}.log"
     write_text(log_path, "")
+    prepared = None
+    fingerprint: str | None = None
+    try:
+        prepared = prepare_step(step, context)
+        fingerprint = _fingerprint_for_prepared_step(
+            step, prepared, context, runtime_view
+        )
+        if (
+            prepared.provider_bin_source is not None
+            and prepared.provider_bin_dest is not None
+        ):
+            stage_executable_tree(
+                prepared.provider_bin_source,
+                prepared.provider_bin_dest,
+            )
+        if (
+            prepared.provider_seed_source is not None
+            and prepared.provider_seed_dest is not None
+        ):
+            stage_readable_tree(
+                prepared.provider_seed_source,
+                prepared.provider_seed_dest,
+            )
+        if prepared.report_path.is_file() or prepared.report_path.is_symlink():
+            prepared.report_path.unlink(missing_ok=True)
+        run_container(
+            prepared.configured_image_ref,
+            prepared.env,
+            [
+                (mount.host_path, mount.container_path, mount.read_only)
+                for mount in prepared.mounts
+            ],
+            stream_output=context.runtime.verbose,
+            output_path=log_path,
+            log_prefix=step if context.runtime.verbose else None,
+        )
+    except DockerError as exc:
+        finished_at = timestamp_utc()
+        _append_step_exception_log(log_path, exc)
+        if prepared is not None and prepared.report_path.is_file():
+            return _result_from_report_path(
+                step=step,
+                prepared=prepared,
+                fingerprint=fingerprint,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+                force_error_on_pass=True,
+            )
+        return _execution_error_result(
+            step=step,
+            context=context,
+            runtime_view=runtime_view,
+            started_at=started_at,
+            finished_at=finished_at,
+            reason="container-run-failed",
+            prepared=prepared,
+            fingerprint=fingerprint,
+        )
+    except Exception as exc:
+        finished_at = timestamp_utc()
+        _append_step_exception_log(log_path, exc)
+        if prepared is not None and prepared.report_path.is_file():
+            return _result_from_report_path(
+                step=step,
+                prepared=prepared,
+                fingerprint=fingerprint,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+                force_error_on_pass=True,
+            )
+        return _execution_error_result(
+            step=step,
+            context=context,
+            runtime_view=runtime_view,
+            started_at=started_at,
+            finished_at=finished_at,
+            reason="step-execution-failed",
+            prepared=prepared,
+            fingerprint=fingerprint,
+        )
+
+    assert prepared is not None
+    finished_at = timestamp_utc()
+    return _result_from_report_path(
+        step=step,
+        prepared=prepared,
+        fingerprint=fingerprint,
+        context=context,
+        runtime_view=runtime_view,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+
+
+def _fingerprint_for_prepared_step(
+    step: str,
+    prepared: StepPrepared,
+    context: AdapterContext,
+    runtime_view: dict[str, object],
+) -> str:
     upstream_hashes = {
         dep: hash_file(path)
         for dep, path in upstream_report_dependencies(step, context.run_root).items()
         if path.is_file()
     }
-    fingerprint = fingerprint_step(
+    return fingerprint_step(
         orchestrator_version=__version__,
         step=step,
         resolved_image_id=prepared.resolved_image_id,
@@ -336,63 +449,125 @@ def _execute_step(
         upstream_report_hashes=upstream_hashes,
         runtime_snapshot=runtime_view,
     )
-    if (
-        prepared.provider_bin_source is not None
-        and prepared.provider_bin_dest is not None
-    ):
-        stage_executable_tree(
-            prepared.provider_bin_source,
-            prepared.provider_bin_dest,
-        )
-    if (
-        prepared.provider_seed_source is not None
-        and prepared.provider_seed_dest is not None
-    ):
-        stage_readable_tree(
-            prepared.provider_seed_source,
-            prepared.provider_seed_dest,
-        )
-    if prepared.report_path.is_file() or prepared.report_path.is_symlink():
-        prepared.report_path.unlink(missing_ok=True)
-    run_container(
-        prepared.configured_image_ref,
-        prepared.env,
-        [
-            (mount.host_path, mount.container_path, mount.read_only)
-            for mount in prepared.mounts
-        ],
-        stream_output=context.runtime.verbose,
-        output_path=log_path,
-        log_prefix=step if context.runtime.verbose else None,
-    )
-    finished_at = timestamp_utc()
+
+
+def _result_from_report_path(
+    *,
+    step: str,
+    prepared: StepPrepared,
+    fingerprint: str | None,
+    context: AdapterContext,
+    runtime_view: dict[str, object],
+    started_at: str,
+    finished_at: str,
+    force_error_on_pass: bool = False,
+) -> StepResult:
     if not prepared.report_path.is_file():
-        return StepResult(
+        return _execution_error_result(
             step=step,
-            status="error",
-            reason="missing-canonical-report",
-            report_status=None,
-            report_path=None,
-            fingerprint=fingerprint,
-            configured_image_ref=prepared.configured_image_ref,
-            resolved_image_id=prepared.resolved_image_id,
+            context=context,
+            runtime_view=runtime_view,
             started_at=started_at,
             finished_at=finished_at,
+            reason="missing-canonical-report",
+            prepared=prepared,
+            fingerprint=fingerprint,
         )
     status, reason, artifacts = classify_report(step, prepared.report_path)
+    report_status = _read_report_status(step, prepared.report_path)
+    if force_error_on_pass and status == "passed":
+        status = "error"
+        reason = "container-run-failed-after-report"
     return StepResult(
         step=step,
         status=status,
         reason=reason,
-        report_status=_read_report_status(step, prepared.report_path),
+        report_status=report_status,
         report_path=prepared.report_path,
-        fingerprint=fingerprint,
+        fingerprint=fingerprint
+        or _fingerprint_for_prepared_step(step, prepared, context, runtime_view),
         configured_image_ref=prepared.configured_image_ref,
         resolved_image_id=prepared.resolved_image_id,
         started_at=started_at,
         finished_at=finished_at,
         artifacts=artifacts,
     )
+
+
+def _execution_error_result(
+    *,
+    step: str,
+    context: AdapterContext,
+    runtime_view: dict[str, object],
+    started_at: str,
+    finished_at: str,
+    reason: str,
+    prepared: StepPrepared | None = None,
+    fingerprint: str | None = None,
+) -> StepResult:
+    effective_prepared = prepared or _safe_prepare_step_for_error(step, context)
+    report_path = (
+        effective_prepared.report_path if effective_prepared is not None else None
+    )
+    configured_image_ref = (
+        effective_prepared.configured_image_ref
+        if effective_prepared is not None
+        else ""
+    )
+    resolved_image_id = (
+        effective_prepared.resolved_image_id if effective_prepared is not None else ""
+    )
+    effective_fingerprint = fingerprint
+    if effective_fingerprint is None and effective_prepared is not None:
+        effective_fingerprint = _fingerprint_for_prepared_step(
+            step, effective_prepared, context, runtime_view
+        )
+    return StepResult(
+        step=step,
+        status="error",
+        reason=reason,
+        report_status=None,
+        report_path=report_path,
+        fingerprint=effective_fingerprint or "",
+        configured_image_ref=configured_image_ref,
+        resolved_image_id=resolved_image_id,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+
+
+def _safe_prepare_step_for_error(
+    step: str, context: AdapterContext
+) -> StepPrepared | None:
+    try:
+        return prepare_step(step, context, stage_inputs=False)
+    except Exception:
+        return None
+
+
+def _unexpected_step_exception_result(
+    step: str,
+    context: AdapterContext,
+    runtime_view: dict[str, object],
+    exc: Exception,
+) -> StepResult:
+    log_path = context.run_root / "pipeline" / "logs" / f"{step}.log"
+    _append_step_exception_log(log_path, exc)
+    now = timestamp_utc()
+    return _execution_error_result(
+        step=step,
+        context=context,
+        runtime_view=runtime_view,
+        started_at=now,
+        finished_at=now,
+        reason="unexpected-step-exception",
+    )
+
+
+def _append_step_exception_log(log_path: Path, exc: Exception) -> None:
+    detail = str(exc).strip() or exc.__class__.__name__
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n[heimdall][error] {detail}\n")
 
 
 def _read_report_status(step: str, path: Path) -> str | None:
