@@ -107,9 +107,9 @@ class AdapterTest(unittest.TestCase):
             eitri_manifest["writers"]["plantuml"]["diagramName"], "diagram"
         )
         self.assertEqual(eitri_manifest["writers"]["plantuml"]["hidePrivate"], True)
-        self.assertNotIn(
-            "generateDegradedDiagrams",
-            eitri_manifest["writers"]["plantuml"],
+        self.assertEqual(
+            eitri_manifest["writers"]["plantuml"]["generateDegradedDiagrams"],
+            True,
         )
         self.assertEqual(
             [
