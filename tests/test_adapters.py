@@ -34,15 +34,24 @@ class AdapterTest(unittest.TestCase):
     def test_generated_eitri_depends_on_andvari(self) -> None:
         self.assertEqual(step_definitions()["eitri-generated"].depends_on, ("andvari",))
 
-    def test_generated_lidskjalv_depends_on_kvasir(self) -> None:
+    def test_generated_lidskjalv_depends_on_andvari_and_waits_for_kvasir(self) -> None:
         self.assertEqual(
-            step_definitions()["lidskjalv-generated"].depends_on, ("kvasir",)
+            step_definitions()["lidskjalv-generated"].depends_on, ("andvari",)
         )
         self.assertEqual(
-            step_definitions()["lidskjalv-generated-v2"].depends_on, ("kvasir-v2",)
+            step_definitions()["lidskjalv-generated"].order_after, ("kvasir",)
         )
         self.assertEqual(
-            step_definitions()["lidskjalv-generated-v3"].depends_on, ("kvasir-v3",)
+            step_definitions()["lidskjalv-generated-v2"].depends_on, ("andvari-v2",)
+        )
+        self.assertEqual(
+            step_definitions()["lidskjalv-generated-v2"].order_after, ("kvasir-v2",)
+        )
+        self.assertEqual(
+            step_definitions()["lidskjalv-generated-v3"].depends_on, ("andvari-v3",)
+        )
+        self.assertEqual(
+            step_definitions()["lidskjalv-generated-v3"].order_after, ("kvasir-v3",)
         )
 
     def test_prepare_eitri_and_lidskjalv_manifests(self) -> None:
@@ -388,7 +397,93 @@ class AdapterTest(unittest.TestCase):
             (str(ported_repo_v2), "/input/repo", True),
         )
 
-    def test_classify_kvasir_records_promoted_ported_repo(self) -> None:
+    def test_prepare_generated_lidskjalv_falls_back_to_andvari_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "pipeline.yaml"
+            write_file(manifest_path, build_pipeline_manifest())
+            _raw, config = load_pipeline_manifest(manifest_path)
+            brokk_run = root / "run-root" / "services" / "brokk" / "run"
+            (brokk_run / "artifacts" / "original-repo").mkdir(
+                parents=True, exist_ok=True
+            )
+            generated_repo = (
+                root
+                / "run-root"
+                / "services"
+                / "andvari"
+                / "run"
+                / "artifacts"
+                / "generated-repo"
+            )
+            generated_repo.mkdir(parents=True, exist_ok=True)
+            write_file(generated_repo / "README.md", "generated\n")
+            runtime = RuntimeConfig(
+                runs_root=root / "runs",
+                codex_bin_dir=root / "provider" / "bin",
+                codex_host_bin_dir=root / "provider" / "bin",
+                codex_home_dir=root / "provider" / "home",
+                pull_policy="if-missing",
+                sonar_host_url=None,
+                sonar_token_present=False,
+                sonar_organization=None,
+            )
+            runtime.codex_bin_dir.mkdir(parents=True, exist_ok=True)
+            runtime.codex_home_dir.mkdir(parents=True, exist_ok=True)
+            context = AdapterContext(
+                config=config,
+                runtime=runtime,
+                run_root=root / "run-root",
+                resolved_images=ResolvedImages(
+                    brokk="sha256:brokk",
+                    eitri="sha256:eitri",
+                    andvari="sha256:andvari",
+                    mimir="sha256:mimir",
+                    kvasir="sha256:kvasir",
+                    lidskjalv="sha256:lidskjalv",
+                ),
+            )
+
+            generated = prepare_step("lidskjalv-generated", context)
+
+        self.assertEqual(
+            [
+                (str(mount.host_path), mount.container_path, mount.read_only)
+                for mount in generated.mounts
+            ][0],
+            (str(generated_repo), "/input/repo", True),
+        )
+
+    def test_classify_kvasir_v3_report_records_promoted_ported_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "services" / "kvasir" / "run"
+            report_path = run_dir / "outputs" / "test_port.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            write_file(
+                report_path,
+                """
+{
+  "schema_version": "kvasir.test_port.v3",
+  "result": {
+    "status": "passed",
+    "verdict": "no_difference_detected"
+  }
+}
+""".strip()
+                + "\n",
+            )
+            promoted_repo = run_dir / "artifacts" / "ported-tests-repo"
+            promoted_repo.mkdir(parents=True, exist_ok=True)
+
+            status, reason, artifacts = classify_report("kvasir", report_path)
+
+        self.assertEqual(status, "passed")
+        self.assertIsNone(reason)
+        self.assertIn("kvasir_report", artifacts)
+        self.assertIn("ported_tests_repo", artifacts)
+
+    def test_classify_kvasir_legacy_report_fallback_still_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_dir = root / "services" / "kvasir" / "run"
@@ -404,15 +499,11 @@ class AdapterTest(unittest.TestCase):
 """.strip()
                 + "\n",
             )
-            promoted_repo = run_dir / "artifacts" / "ported-tests-repo"
-            promoted_repo.mkdir(parents=True, exist_ok=True)
 
-            status, reason, artifacts = classify_report("kvasir", report_path)
+            status, reason, _artifacts = classify_report("kvasir", report_path)
 
         self.assertEqual(status, "passed")
         self.assertIsNone(reason)
-        self.assertIn("kvasir_report", artifacts)
-        self.assertIn("ported_tests_repo", artifacts)
 
     def test_prepare_mimir_manifest_and_mounts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

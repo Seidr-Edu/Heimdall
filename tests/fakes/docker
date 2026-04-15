@@ -605,25 +605,31 @@ def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str
     ported_repo.mkdir(parents=True, exist_ok=True)
     (ported_repo / "README.md").write_text("ported repo\n", encoding="utf-8")
     status = "passed"
-    behavioral_verdict = "pass"
+    verdict = "no_difference_detected"
     reason = None
+    verdict_reason = None
     if mode == "behavioral-fail":
-        behavioral_verdict = "fail"
+        verdict = "difference_detected"
+        verdict_reason = "ported-tests-failed"
     elif mode == "failed-report":
         status = "failed"
-        behavioral_verdict = "fail"
+        verdict = "inconclusive"
         reason = "fake-kvasir-failure"
     elif mode == "error-report":
         status = "error"
-        behavioral_verdict = "fail"
+        verdict = "invalid"
         reason = "fake-kvasir-error"
     _write_json(
         outputs_dir / "test_port.json",
         {
-            "status": status,
-            "behavioral_verdict": behavioral_verdict,
-            "reason": reason,
+            "schema_version": "kvasir.test_port.v3",
             "run_id": manifest.get("run_id"),
+            "result": {
+                "status": status,
+                "reason": reason,
+                "verdict": verdict,
+                "verdict_reason": verdict_reason,
+            },
             "artifacts": {
                 "ported_repo": "/run/artifacts/ported-tests-repo",
             },

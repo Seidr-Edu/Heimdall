@@ -54,9 +54,10 @@ class RunnerIntegrationTest(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        self.assertEqual(failed_report["status"], "failed")
         self.assertEqual(failed_report["steps"]["kvasir"]["status"], "failed")
         self.assertEqual(
-            failed_report["steps"]["lidskjalv-generated"]["status"], "blocked"
+            failed_report["steps"]["lidskjalv-generated"]["status"], "passed"
         )
         self.assertEqual(failed_report["steps"]["andvari-v2"]["status"], "passed")
         self.assertEqual(failed_report["steps"]["mimir-v2"]["status"], "passed")
@@ -185,6 +186,52 @@ class RunnerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["steps"]["mimir-v3"]["status"], "blocked")
         self.assertEqual(report["steps"]["kvasir-v3"]["status"], "blocked")
         self.assertEqual(report["steps"]["lidskjalv-generated-v3"]["status"], "blocked")
+
+    def test_kvasir_missing_report_uses_generated_repo_fallback(self) -> None:
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_KVASIR_MODE": "missing-report"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["kvasir"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["kvasir"]["reason"], "missing-canonical-report"
+        )
+        self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "passed")
+
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+        generated_mount = self._mount_host_path(
+            run_by_step["lidskjalv-generated"], "/input/repo"
+        )
+        self.assertEqual(
+            generated_mount.resolve(),
+            (
+                run_root
+                / "services"
+                / "andvari"
+                / "run"
+                / "artifacts"
+                / "generated-repo"
+            ).resolve(),
+        )
 
     def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
