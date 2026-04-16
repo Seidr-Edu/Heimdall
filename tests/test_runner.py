@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from heimdall.runner import _remove_cleanup_path
 from tests.helpers import (
     build_pipeline_manifest,
     fake_env,
@@ -537,6 +539,24 @@ class RunnerIntegrationTest(unittest.TestCase):
             if mount["container"] == container_path:
                 return Path(mount["host"])
         self.fail(f"missing mount for {container_path}")
+
+
+class RunnerCleanupPathTest(unittest.TestCase):
+    def test_remove_cleanup_path_unlinks_fifo(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="heimdall-cleanup-") as tmp:
+            root = Path(tmp)
+            fifo_path = root / "cleanup.pipe"
+            log_path = root / "cleanup.log"
+
+            os.mkfifo(fifo_path)
+
+            self.assertTrue(fifo_path.exists())
+            self.assertFalse(fifo_path.is_file())
+            self.assertFalse(fifo_path.is_dir())
+
+            _remove_cleanup_path(fifo_path, log_path)
+
+            self.assertFalse(fifo_path.exists())
 
 
 if __name__ == "__main__":

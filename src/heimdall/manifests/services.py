@@ -105,6 +105,7 @@ def build_step_manifest_payload(
             "adapter": "codex",
             "diagram_relpath": "diagram.puml",
             "max_iter": context.config.kvasir.max_iter,
+            "runner_timeout_sec": context.config.kvasir.runner_timeout_sec,
         }
         if context.config.kvasir.original_subdir is not None:
             payload["original_subdir"] = context.config.kvasir.original_subdir

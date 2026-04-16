@@ -610,8 +610,10 @@ def _remove_cleanup_path(path: Path, log_path: Path) -> None:
     try:
         if path.is_symlink() or path.is_file():
             path.unlink(missing_ok=True)
-        elif path.exists():
+        elif path.is_dir():
             shutil.rmtree(path)
+        elif path.exists():
+            path.unlink(missing_ok=True)
     except OSError as exc:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(f"\n[heimdall][cleanup] failed to remove {path}: {exc}\n")
