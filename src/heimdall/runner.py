@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
@@ -334,6 +335,7 @@ def _execute_step(
     write_text(log_path, "")
     prepared = None
     fingerprint: str | None = None
+    result: StepResult | None = None
     try:
         prepared = prepare_step(step, context)
         fingerprint = _fingerprint_for_prepared_step(
@@ -372,7 +374,7 @@ def _execute_step(
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
         if prepared is not None and prepared.report_path.is_file():
-            return _result_from_report_path(
+            result = _result_from_report_path(
                 step=step,
                 prepared=prepared,
                 fingerprint=fingerprint,
@@ -382,21 +384,22 @@ def _execute_step(
                 finished_at=finished_at,
                 force_error_on_pass=True,
             )
-        return _execution_error_result(
-            step=step,
-            context=context,
-            runtime_view=runtime_view,
-            started_at=started_at,
-            finished_at=finished_at,
-            reason="container-run-failed",
-            prepared=prepared,
-            fingerprint=fingerprint,
-        )
+        else:
+            result = _execution_error_result(
+                step=step,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+                reason="container-run-failed",
+                prepared=prepared,
+                fingerprint=fingerprint,
+            )
     except Exception as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
         if prepared is not None and prepared.report_path.is_file():
-            return _result_from_report_path(
+            result = _result_from_report_path(
                 step=step,
                 prepared=prepared,
                 fingerprint=fingerprint,
@@ -406,28 +409,35 @@ def _execute_step(
                 finished_at=finished_at,
                 force_error_on_pass=True,
             )
-        return _execution_error_result(
+        else:
+            result = _execution_error_result(
+                step=step,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+                reason="step-execution-failed",
+                prepared=prepared,
+                fingerprint=fingerprint,
+            )
+    else:
+        assert prepared is not None
+        finished_at = timestamp_utc()
+        result = _result_from_report_path(
             step=step,
+            prepared=prepared,
+            fingerprint=fingerprint,
             context=context,
             runtime_view=runtime_view,
             started_at=started_at,
             finished_at=finished_at,
-            reason="step-execution-failed",
-            prepared=prepared,
-            fingerprint=fingerprint,
         )
+    finally:
+        if prepared is not None:
+            _cleanup_executed_step_runtime(prepared, log_path)
 
-    assert prepared is not None
-    finished_at = timestamp_utc()
-    return _result_from_report_path(
-        step=step,
-        prepared=prepared,
-        fingerprint=fingerprint,
-        context=context,
-        runtime_view=runtime_view,
-        started_at=started_at,
-        finished_at=finished_at,
-    )
+    assert result is not None
+    return result
 
 
 def _fingerprint_for_prepared_step(
@@ -568,6 +578,43 @@ def _append_step_exception_log(log_path: Path, exc: Exception) -> None:
     detail = str(exc).strip() or exc.__class__.__name__
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(f"\n[heimdall][error] {detail}\n")
+
+
+def _cleanup_executed_step_runtime(prepared: StepPrepared, log_path: Path) -> None:
+    seen: set[str] = set()
+    for path in _cleanup_paths_for_prepared_step(prepared):
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        _remove_cleanup_path(path, log_path)
+
+
+def _cleanup_paths_for_prepared_step(prepared: StepPrepared) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    if prepared.provider_bin_dest is not None:
+        paths.append(prepared.provider_bin_dest)
+    if prepared.provider_seed_dest is not None:
+        paths.append(prepared.provider_seed_dest)
+    paths.extend(
+        [
+            prepared.run_dir / "provider-state",
+            prepared.run_dir / "service-runtime",
+            prepared.run_dir / "runner-internal",
+        ]
+    )
+    return tuple(paths)
+
+
+def _remove_cleanup_path(path: Path, log_path: Path) -> None:
+    try:
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.exists():
+            shutil.rmtree(path)
+    except OSError as exc:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"\n[heimdall][cleanup] failed to remove {path}: {exc}\n")
 
 
 def _read_report_status(step: str, path: Path) -> str | None:

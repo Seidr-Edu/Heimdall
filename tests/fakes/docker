@@ -472,12 +472,21 @@ def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
 
 def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
     run_root = container.resolve("/run")
+    provider_state = run_root / "provider-state" / "codex-home" / "sessions"
+    service_runtime = run_root / "service-runtime"
+    runner_internal = run_root / "runner-internal" / str(manifest.get("run_id", "run"))
     generated_repo = run_root / "artifacts" / "generated-repo"
     logs_dir = run_root / "artifacts" / "andvari" / "logs"
     report_dir = run_root / "artifacts" / "andvari" / "report"
+    provider_state.mkdir(parents=True, exist_ok=True)
+    service_runtime.mkdir(parents=True, exist_ok=True)
+    runner_internal.mkdir(parents=True, exist_ok=True)
     generated_repo.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state / "auth-state.json").write_text("authenticated\n", encoding="utf-8")
+    (service_runtime / "active-provider.pid").write_text("1234\n", encoding="utf-8")
+    (runner_internal / "run.log").write_text("runner internals\n", encoding="utf-8")
     (generated_repo / "README.md").write_text("generated repo\n", encoding="utf-8")
     status = "passed"
     reason = None
@@ -603,8 +612,11 @@ def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str
     run_root = container.resolve("/run")
     outputs_dir = run_root / "outputs"
     ported_repo = run_root / "artifacts" / "ported-tests-repo"
+    provider_state = run_root / "provider-state" / "codex-home" / "sessions"
     outputs_dir.mkdir(parents=True, exist_ok=True)
     ported_repo.mkdir(parents=True, exist_ok=True)
+    provider_state.mkdir(parents=True, exist_ok=True)
+    (provider_state / "auth-state.json").write_text("authenticated\n", encoding="utf-8")
     (ported_repo / "README.md").write_text("ported repo\n", encoding="utf-8")
     status = "passed"
     verdict = "no_difference_detected"
