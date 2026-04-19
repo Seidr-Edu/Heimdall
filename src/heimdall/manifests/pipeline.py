@@ -92,6 +92,7 @@ def pipeline_to_document(config: PipelineConfig) -> dict[str, object]:
             "original_subdir": config.kvasir.original_subdir,
             "generated_subdir": config.kvasir.generated_subdir,
             "max_iter": config.kvasir.max_iter,
+            "runner_timeout_sec": config.kvasir.runner_timeout_sec,
             "write_scope_ignore_prefixes": list(
                 config.kvasir.write_scope_ignore_prefixes
             ),
@@ -250,6 +251,7 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
             "original_subdir",
             "generated_subdir",
             "max_iter",
+            "runner_timeout_sec",
             "write_scope_ignore_prefixes",
         },
         "kvasir",
@@ -258,6 +260,9 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
         original_subdir=_optional_str(kvasir_data, "original_subdir", "kvasir"),
         generated_subdir=_optional_str(kvasir_data, "generated_subdir", "kvasir"),
         max_iter=_optional_int(kvasir_data, "max_iter", "kvasir", 5),
+        runner_timeout_sec=_optional_int(
+            kvasir_data, "runner_timeout_sec", "kvasir", 7200
+        ),
         write_scope_ignore_prefixes=tuple(
             _string_list(
                 kvasir_data.get("write_scope_ignore_prefixes"),

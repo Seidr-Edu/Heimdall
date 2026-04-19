@@ -68,6 +68,7 @@ def build_pipeline_manifest(
             "original_subdir": "app",
             "generated_subdir": "generated/app",
             "max_iter": 5,
+            "runner_timeout_sec": 7200,
             "write_scope_ignore_prefixes": ["completion/proof/logs", ".m2"],
         },
         "lidskjalv": {
@@ -131,6 +132,7 @@ def build_worker_config(
             "original_subdir": "app",
             "generated_subdir": "generated/app",
             "max_iter": 5,
+            "runner_timeout_sec": 7200,
             "write_scope_ignore_prefixes": ["completion/proof/logs", ".m2"],
         },
         "lidskjalv": {

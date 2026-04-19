@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from heimdall.runner import _remove_cleanup_path
 from tests.helpers import (
     build_pipeline_manifest,
     fake_env,
@@ -378,15 +380,24 @@ class RunnerIntegrationTest(unittest.TestCase):
             (self.home_dir / "tmp" / "arg0").stat().st_mode & 0o777,
             0o600,
         )
-        self.assertEqual((andvari_seed / "auth.json").stat().st_mode & 0o777, 0o644)
-        self.assertEqual((andvari_seed / "config.toml").stat().st_mode & 0o777, 0o644)
-        self.assertEqual((andvari_seed / "tmp").stat().st_mode & 0o777, 0o755)
-        self.assertEqual((andvari_seed / "tmp" / "arg0").stat().st_mode & 0o777, 0o644)
         self.assertEqual(
-            (andvari_seed / "log" / "codex-login.log").stat().st_mode & 0o777,
-            0o644,
+            (self.home_dir / "log" / "codex-login.log").stat().st_mode & 0o777,
+            0o600,
         )
-        self.assertTrue((kvasir_seed / "tmp" / "arg0").is_file())
+        self.assertFalse(andvari_seed.exists())
+        self.assertFalse(kvasir_seed.exists())
+        self.assertFalse(
+            (run_root / "services" / "andvari" / "run" / "provider-state").exists()
+        )
+        self.assertFalse(
+            (run_root / "services" / "kvasir" / "run" / "provider-state").exists()
+        )
+        self.assertFalse(
+            (run_root / "services" / "andvari" / "run" / "service-runtime").exists()
+        )
+        self.assertFalse(
+            (run_root / "services" / "andvari" / "run" / "runner-internal").exists()
+        )
 
     def test_codex_bin_dir_is_staged_into_executable_provider_bin_mounts(self) -> None:
         real_provider_bin = self.root / "real-provider-bin"
@@ -429,9 +440,64 @@ class RunnerIntegrationTest(unittest.TestCase):
         )
         self.assertNotEqual(andvari_bin, provider_bin_dir)
         self.assertTrue((provider_bin_dir / "codex").is_symlink())
-        self.assertFalse((andvari_bin / "codex").is_symlink())
-        self.assertEqual((andvari_bin / "codex").stat().st_mode & 0o777, 0o755)
-        self.assertEqual((kvasir_bin / "codex").stat().st_mode & 0o777, 0o755)
+        self.assertFalse(andvari_bin.exists())
+        self.assertFalse(kvasir_bin.exists())
+
+    def test_cleanup_runs_after_nonzero_service_exit_with_canonical_report(
+        self,
+    ) -> None:
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_KVASIR_MODE": "nonzero-after-report"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        self.assertFalse(
+            (run_root / "services" / "kvasir" / "input" / "provider-bin").exists()
+        )
+        self.assertFalse(
+            (run_root / "services" / "kvasir" / "input" / "provider-seed").exists()
+        )
+        self.assertFalse(
+            (run_root / "services" / "kvasir" / "run" / "provider-state").exists()
+        )
+
+    def test_cleanup_runs_after_missing_report_error(self) -> None:
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_KVASIR_MODE": "missing-report"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        self.assertFalse(
+            (run_root / "services" / "kvasir" / "input" / "provider-bin").exists()
+        )
+        self.assertFalse(
+            (run_root / "services" / "kvasir" / "input" / "provider-seed").exists()
+        )
+        self.assertFalse(
+            (run_root / "services" / "kvasir" / "run" / "provider-state").exists()
+        )
 
     def test_preflight_requires_sonar_when_enabled(self) -> None:
         sonar_manifest = build_pipeline_manifest(
@@ -473,6 +539,24 @@ class RunnerIntegrationTest(unittest.TestCase):
             if mount["container"] == container_path:
                 return Path(mount["host"])
         self.fail(f"missing mount for {container_path}")
+
+
+class RunnerCleanupPathTest(unittest.TestCase):
+    def test_remove_cleanup_path_unlinks_fifo(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="heimdall-cleanup-") as tmp:
+            root = Path(tmp)
+            fifo_path = root / "cleanup.pipe"
+            log_path = root / "cleanup.log"
+
+            os.mkfifo(fifo_path)
+
+            self.assertTrue(fifo_path.exists())
+            self.assertFalse(fifo_path.is_file())
+            self.assertFalse(fifo_path.is_dir())
+
+            _remove_cleanup_path(fifo_path, log_path)
+
+            self.assertFalse(fifo_path.exists())
 
 
 if __name__ == "__main__":

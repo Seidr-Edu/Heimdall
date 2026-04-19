@@ -318,6 +318,7 @@ def _parse_kvasir_config(data: dict[str, object]) -> KvasirConfig:
             "original_subdir",
             "generated_subdir",
             "max_iter",
+            "runner_timeout_sec",
             "write_scope_ignore_prefixes",
         },
         "kvasir",
@@ -326,6 +327,9 @@ def _parse_kvasir_config(data: dict[str, object]) -> KvasirConfig:
         original_subdir=pipeline_mod._optional_str(data, "original_subdir", "kvasir"),
         generated_subdir=pipeline_mod._optional_str(data, "generated_subdir", "kvasir"),
         max_iter=pipeline_mod._optional_int(data, "max_iter", "kvasir", 5),
+        runner_timeout_sec=pipeline_mod._optional_int(
+            data, "runner_timeout_sec", "kvasir", 7200
+        ),
         write_scope_ignore_prefixes=tuple(
             pipeline_mod._string_list(
                 data.get("write_scope_ignore_prefixes"),
@@ -437,6 +441,7 @@ def _parse_kvasir_override(data: dict[str, object], path: str) -> dict[str, obje
             "original_subdir",
             "generated_subdir",
             "max_iter",
+            "runner_timeout_sec",
             "write_scope_ignore_prefixes",
         },
         path,
@@ -452,6 +457,10 @@ def _parse_kvasir_override(data: dict[str, object], path: str) -> dict[str, obje
         )
     if "max_iter" in data:
         result["max_iter"] = pipeline_mod._optional_int(data, "max_iter", path, 0)
+    if "runner_timeout_sec" in data:
+        result["runner_timeout_sec"] = pipeline_mod._optional_int(
+            data, "runner_timeout_sec", path, 0
+        )
     if "write_scope_ignore_prefixes" in data:
         prefixes = pipeline_mod._string_list(
             data.get("write_scope_ignore_prefixes"),
@@ -553,6 +562,7 @@ def _kvasir_to_document(config: KvasirConfig) -> dict[str, object]:
         "original_subdir": config.original_subdir,
         "generated_subdir": config.generated_subdir,
         "max_iter": config.max_iter,
+        "runner_timeout_sec": config.runner_timeout_sec,
         "write_scope_ignore_prefixes": list(config.write_scope_ignore_prefixes),
     }
 

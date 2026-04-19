@@ -99,6 +99,7 @@ class KvasirConfig:
     original_subdir: str | None = None
     generated_subdir: str | None = None
     max_iter: int = 5
+    runner_timeout_sec: int = 7200
     write_scope_ignore_prefixes: tuple[str, ...] = ()
 
 
