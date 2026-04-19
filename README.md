@@ -64,6 +64,20 @@ entrypoints are `heimdall` and `orchestrator`. If `--codex-host-bin-dir` is
 omitted, Heimdall uses `--codex-bin-dir` for both host preflight and container
 mounts.
 
+If you want Heimdall to route only `Andvari` through a proxy-backed Docker
+network that blocks GitHub, add:
+
+```bash
+  --andvari-github-block-enabled \
+  --andvari-internal-network-name andvari-egress \
+  --andvari-proxy-url http://andvari-proxy.internal:3128
+```
+
+When enabled, Heimdall leaves every other step unchanged, attaches only the
+`andvari*` steps to that Docker network, injects `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NO_PROXY`, and rewrites only the staged Andvari
+`config.toml` copy to disable the GitHub plugin.
+
 ## Queue worker
 
 Heimdall can also run as a long-lived VPS worker that owns a FIFO queue. The
@@ -79,6 +93,17 @@ Worker config example:
 
 - [examples/worker.example.yaml](examples/worker.example.yaml)
 - [examples/heimdall-worker.service](examples/heimdall-worker.service)
+
+The worker config also supports an opt-in Andvari-only GitHub block:
+
+- `andvari_github_block_enabled: true`
+- `andvari_internal_network_name: andvari-egress`
+- `andvari_proxy_url: http://andvari-proxy.internal:3128`
+
+Leave `andvari_github_block_enabled: false` to preserve the current behavior.
+When enabled, Heimdall assumes the configured proxy denies GitHub-family
+traffic for the Andvari container while still allowing Codex API traffic and
+normal dependency resolution.
 
 Submit one job from your local machine over SSH:
 
@@ -224,6 +249,32 @@ The summary includes the host Codex binary format and a classified failure
 reason such as `codex-binary-incompatible-with-container`,
 `codex-auth-unusable-in-container`, or
 `codex-exec-workspace-access-failed`.
+
+If you enable the Andvari GitHub block for `smoke-provider`, Heimdall also:
+
+- rewrites only the staged Andvari `config.toml` copy to force
+  `plugins."github@openai-curated".enabled = false`
+- attaches only the Andvari probe container to the configured Docker network
+- injects only the Andvari probe container with `HTTP_PROXY`, `HTTPS_PROXY`,
+  and `NO_PROXY`
+- verifies `curl` to `github.com`, `api.github.com`, and
+  `raw.githubusercontent.com` fails
+- verifies `git ls-remote https://github.com/...` fails
+- verifies a Maven canary test project still resolves dependencies and passes
+- verifies a Gradle canary test project still resolves dependencies and passes
+
+Heimdall does not implement the proxy itself. The external proxy or egress
+policy must deny at least:
+
+- `github.com`
+- `api.github.com`
+- `gist.github.com`
+- `raw.githubusercontent.com`
+- `codeload.github.com`
+- `objects.githubusercontent.com`
+- `*.githubusercontent.com`
+- `*.githubassets.com`
+- `ghcr.io`
 
 ## Local run
 

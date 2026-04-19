@@ -399,6 +399,97 @@ class RunnerIntegrationTest(unittest.TestCase):
             (run_root / "services" / "andvari" / "run" / "runner-internal").exists()
         )
 
+    def test_andvari_github_block_wires_network_proxy_and_seed_sanitization(
+        self,
+    ) -> None:
+        write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
+        write_file(
+            self.home_dir / "config.toml",
+            """
+provider = "chatgpt"
+
+[plugins."github@openai-curated"]
+enabled = true
+""".strip()
+            + "\n",
+            mode=0o600,
+        )
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+                "--andvari-github-block-enabled",
+                "--andvari-internal-network-name",
+                "andvari-egress",
+                "--andvari-proxy-url",
+                "http://proxy.internal:3128",
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+
+        for step in ("andvari", "andvari-v2", "andvari-v3"):
+            self.assertEqual(run_by_step[step]["network"], "andvari-egress")
+            self.assertEqual(
+                run_by_step[step]["env"]["HTTP_PROXY"], "http://proxy.internal:3128"
+            )
+            self.assertEqual(
+                run_by_step[step]["env"]["HTTPS_PROXY"], "http://proxy.internal:3128"
+            )
+            self.assertEqual(
+                run_by_step[step]["env"]["NO_PROXY"], "127.0.0.1,localhost"
+            )
+            self.assertIn("enabled = false", run_by_step[step]["provider_seed_config"])
+        for step in ("brokk", "eitri", "kvasir", "kvasir-v2", "kvasir-v3"):
+            self.assertIsNone(run_by_step[step]["network"])
+            self.assertNotIn("HTTP_PROXY", run_by_step[step]["env"])
+            self.assertNotIn("HTTPS_PROXY", run_by_step[step]["env"])
+            self.assertNotIn("NO_PROXY", run_by_step[step]["env"])
+        self.assertIn("enabled = true", run_by_step["kvasir"]["provider_seed_config"])
+
+    def test_andvari_github_block_disabled_preserves_existing_provider_seed(
+        self,
+    ) -> None:
+        write_file(
+            self.home_dir / "config.toml",
+            """
+
+[plugins."github@openai-curated"]
+enabled = true
+""".strip()
+            + "\n",
+            mode=0o600,
+        )
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+        self.assertIsNone(run_by_step["andvari"]["network"])
+        self.assertNotIn("HTTP_PROXY", run_by_step["andvari"]["env"])
+        self.assertIn("enabled = true", run_by_step["andvari"]["provider_seed_config"])
+
     def test_codex_bin_dir_is_staged_into_executable_provider_bin_mounts(self) -> None:
         real_provider_bin = self.root / "real-provider-bin"
         real_provider_bin.mkdir(parents=True, exist_ok=True)

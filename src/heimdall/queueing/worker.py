@@ -424,6 +424,9 @@ def _runtime_from_worker_config(worker_config: WorkerConfig) -> RuntimeConfig:
         worker_config.codex_home_dir,
         worker_config.pull_policy,
         worker_config.verbose,
+        andvari_github_block_enabled=worker_config.andvari_github_block_enabled,
+        andvari_internal_network_name=worker_config.andvari_internal_network_name,
+        andvari_proxy_url=worker_config.andvari_proxy_url,
     )
 
 

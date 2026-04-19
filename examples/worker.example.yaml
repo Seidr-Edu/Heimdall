@@ -6,6 +6,11 @@ codex_host_bin_dir: /srv/pipeline/provider/codex/bin
 codex_home_dir: /srv/pipeline/provider/codex/home
 pull_policy: if-missing
 verbose: false
+andvari_github_block_enabled: false
+# When enabled, only Andvari uses this Docker network and proxy.
+# The proxy itself is external infrastructure and must deny GitHub hosts.
+# andvari_internal_network_name: andvari-egress
+# andvari_proxy_url: http://andvari-proxy.internal:3128
 
 images:
   brokk: ghcr.io/seidr-edu/brokk:v1.0.0

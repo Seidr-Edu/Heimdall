@@ -20,6 +20,10 @@ def build_runtime(
     codex_home_dir: Path,
     pull_policy: PullPolicy,
     verbose: bool,
+    *,
+    andvari_github_block_enabled: bool = False,
+    andvari_internal_network_name: str | None = None,
+    andvari_proxy_url: str | None = None,
 ) -> RuntimeConfig:
     runs_root = runs_root.resolve()
     codex_bin_dir = codex_bin_dir.resolve()
@@ -39,6 +43,9 @@ def build_runtime(
         sonar_token_present=bool(os.environ.get("SONAR_TOKEN")),
         sonar_organization=os.environ.get("SONAR_ORGANIZATION"),
         verbose=verbose,
+        andvari_github_block_enabled=andvari_github_block_enabled,
+        andvari_internal_network_name=andvari_internal_network_name,
+        andvari_proxy_url=andvari_proxy_url,
     )
 
 
@@ -60,6 +67,7 @@ def preflight(config: PipelineConfig, runtime: RuntimeConfig) -> None:
         )
     if not runtime.codex_home_dir.is_dir():
         raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
+    _validate_andvari_github_block_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
         print("[heimdall] docker daemon reachable", file=sys.stderr, flush=True)
@@ -104,6 +112,7 @@ def preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         )
     if not runtime.codex_home_dir.is_dir():
         raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
+    _validate_andvari_github_block_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
         print("[heimdall] docker daemon reachable", file=sys.stderr, flush=True)
@@ -129,6 +138,20 @@ def check_codex_login(runtime: RuntimeConfig) -> None:
         )
     except (subprocess.CalledProcessError, OSError) as exc:
         raise PreflightError(f"codex login status failed: {exc}") from exc
+
+
+def _validate_andvari_github_block_runtime(runtime: RuntimeConfig) -> None:
+    if not runtime.andvari_github_block_enabled:
+        return
+    if not runtime.andvari_internal_network_name:
+        raise PreflightError(
+            "Andvari GitHub blocking is enabled, but no internal Docker network "
+            "name was configured."
+        )
+    if not runtime.andvari_proxy_url:
+        raise PreflightError(
+            "Andvari GitHub blocking is enabled, but no proxy URL was configured."
+        )
 
 
 def run_pipeline_manifest_path(

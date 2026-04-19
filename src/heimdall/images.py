@@ -65,6 +65,7 @@ def run_container(
     env: dict[str, str],
     mounts: list[tuple[Path, str, bool]],
     *,
+    network_name: str | None = None,
     stream_output: bool = False,
     output_path: Path | None = None,
     log_prefix: str | None = None,
@@ -72,6 +73,8 @@ def run_container(
     command_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = ["docker", "run", "--rm"]
+    if network_name is not None:
+        command.extend(["--network", network_name])
     if entrypoint is not None:
         command.extend(["--entrypoint", entrypoint])
     for key, value in sorted(env.items()):

@@ -93,6 +93,9 @@ def build_worker_config(
     codex_host_bin_dir: Path | None = None,
     skip_sonar: bool = True,
     verbose: bool = False,
+    andvari_github_block_enabled: bool = False,
+    andvari_internal_network_name: str | None = None,
+    andvari_proxy_url: str | None = None,
 ) -> str:
     document: dict[str, object] = {
         "version": 1,
@@ -147,6 +150,12 @@ def build_worker_config(
     }
     if codex_host_bin_dir is not None:
         document["codex_host_bin_dir"] = str(codex_host_bin_dir)
+    if andvari_github_block_enabled:
+        document["andvari_github_block_enabled"] = True
+    if andvari_internal_network_name is not None:
+        document["andvari_internal_network_name"] = andvari_internal_network_name
+    if andvari_proxy_url is not None:
+        document["andvari_proxy_url"] = andvari_proxy_url
     return dumps(document)
 
 

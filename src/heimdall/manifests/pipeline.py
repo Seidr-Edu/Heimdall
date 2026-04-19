@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -49,6 +50,11 @@ def load_pipeline_manifest(path: Path) -> tuple[str, PipelineConfig]:
 
 
 def runtime_snapshot(runtime: RuntimeConfig) -> dict[str, object]:
+    proxy_url_fingerprint = None
+    if runtime.andvari_proxy_url is not None:
+        proxy_url_fingerprint = hashlib.sha256(
+            runtime.andvari_proxy_url.encode("utf-8")
+        ).hexdigest()
     return {
         "runs_root": str(runtime.runs_root),
         "pull_policy": runtime.pull_policy,
@@ -56,6 +62,9 @@ def runtime_snapshot(runtime: RuntimeConfig) -> dict[str, object]:
         "codex_home_dir": str(runtime.codex_home_dir),
         "sonar_host_url": runtime.sonar_host_url,
         "sonar_organization": runtime.sonar_organization,
+        "andvari_github_block_enabled": runtime.andvari_github_block_enabled,
+        "andvari_internal_network_name": runtime.andvari_internal_network_name,
+        "andvari_proxy_url_sha256": proxy_url_fingerprint,
     }
 
 

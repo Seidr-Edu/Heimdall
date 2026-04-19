@@ -34,6 +34,11 @@ from heimdall.models import (
     StepResult,
     StepState,
 )
+from heimdall.provider_runtime import (
+    docker_network_for_step,
+    env_for_step,
+    sanitize_andvari_codex_seed,
+)
 from heimdall.reporting import write_artifact_index, write_run_outputs
 from heimdall.simpleyaml import dumps
 from heimdall.sonar_follow_up import sync_sonar_follow_up
@@ -357,15 +362,23 @@ def _execute_step(
                 prepared.provider_seed_source,
                 prepared.provider_seed_dest,
             )
+            sanitize_andvari_codex_seed(
+                step,
+                prepared.provider_seed_dest,
+                context.runtime,
+            )
         if prepared.report_path.is_file() or prepared.report_path.is_symlink():
             prepared.report_path.unlink(missing_ok=True)
+        container_env = dict(prepared.env)
+        container_env.update(env_for_step(step, context.runtime))
         run_container(
             prepared.configured_image_ref,
-            prepared.env,
+            container_env,
             [
                 (mount.host_path, mount.container_path, mount.read_only)
                 for mount in prepared.mounts
             ],
+            network_name=docker_network_for_step(step, context.runtime),
             stream_output=context.runtime.verbose,
             output_path=log_path,
             log_prefix=step if context.runtime.verbose else None,
