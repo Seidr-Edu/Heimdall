@@ -4,6 +4,7 @@ import hashlib
 import re
 import tomllib
 from collections.abc import Mapping
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,9 @@ def andvari_proxy_env(runtime: RuntimeConfig) -> dict[str, str]:
         "HTTP_PROXY": proxy_url,
         "HTTPS_PROXY": proxy_url,
         "NO_PROXY": _NO_PROXY_VALUE,
+        "http_proxy": proxy_url,
+        "https_proxy": proxy_url,
+        "no_proxy": _NO_PROXY_VALUE,
     }
 
 
@@ -98,28 +102,58 @@ def _load_toml_document(path: Path) -> dict[str, Any]:
 
 def _dump_toml_document(document: Mapping[str, Any]) -> str:
     lines: list[str] = []
-    _dump_table(lines, (), document)
+    _dump_table_body(lines, (), document)
     return "\n".join(lines).rstrip() + "\n"
 
 
 def _dump_table(
     lines: list[str], prefix: tuple[str, ...], table: Mapping[str, Any]
 ) -> None:
-    scalar_items = [
-        (key, value) for key, value in table.items() if not isinstance(value, Mapping)
-    ]
-    nested_items = [
-        (key, value) for key, value in table.items() if isinstance(value, Mapping)
-    ]
+    if lines:
+        lines.append("")
+    lines.append(f"[{'.'.join(_encode_key(part) for part in prefix)}]")
+    _dump_table_body(lines, prefix, table)
 
-    if prefix:
-        if lines:
-            lines.append("")
-        lines.append(f"[{'.'.join(_encode_key(part) for part in prefix)}]")
+
+def _dump_table_body(
+    lines: list[str], prefix: tuple[str, ...], table: Mapping[str, Any]
+) -> None:
+    scalar_items: list[tuple[str, Any]] = []
+    nested_items: list[tuple[str, Mapping[str, Any]]] = []
+    array_table_items: list[tuple[str, list[Mapping[str, Any]]]] = []
+    for key, value in table.items():
+        if isinstance(value, Mapping):
+            nested_items.append((key, value))
+            continue
+        if _is_array_of_tables(value):
+            array_table_items.append((key, value))
+            continue
+        scalar_items.append((key, value))
+
     for key, value in scalar_items:
         lines.append(f"{_encode_key(key)} = {_encode_value(value)}")
     for key, value in nested_items:
         _dump_table(lines, (*prefix, key), value)
+    for key, value in array_table_items:
+        _dump_table_array(lines, (*prefix, key), value)
+
+
+def _dump_table_array(
+    lines: list[str], prefix: tuple[str, ...], tables: list[Mapping[str, Any]]
+) -> None:
+    for table in tables:
+        if lines:
+            lines.append("")
+        lines.append(f"[[{'.'.join(_encode_key(part) for part in prefix)}]]")
+        _dump_table_body(lines, prefix, table)
+
+
+def _is_array_of_tables(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, Mapping) for item in value)
+    )
 
 
 def _encode_key(key: str) -> str:
@@ -136,9 +170,19 @@ def _encode_value(value: Any) -> str:
         return str(value)
     if isinstance(value, float):
         return repr(value)
+    if isinstance(value, datetime):
+        return value.isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, time):
+        return value.isoformat()
     if isinstance(value, str):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         return f'"{escaped}"'
     if isinstance(value, list):
+        if any(isinstance(item, Mapping) for item in value):
+            raise RuntimeError(
+                "Unsupported inline TOML array containing mapping/object values"
+            )
         return "[" + ", ".join(_encode_value(item) for item in value) + "]"
     raise RuntimeError(f"Unsupported TOML value in staged Codex config: {value!r}")

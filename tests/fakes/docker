@@ -329,6 +329,9 @@ def _run_provider_smoke(
             "HTTP_PROXY",
             "HTTPS_PROXY",
             "NO_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "no_proxy",
         }
         if not required_proxy_env.issubset(env_vars):
             print("[smoke][error] github access unexpectedly succeeded: missing proxy env")

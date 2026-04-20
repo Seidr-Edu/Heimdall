@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -407,6 +408,15 @@ class RunnerIntegrationTest(unittest.TestCase):
             self.home_dir / "config.toml",
             """
 provider = "chatgpt"
+launch_date = 2026-04-21
+quiet_hours = 08:30:00
+cutover_at = 2026-04-21T12:34:56Z
+
+[[profiles]]
+name = "default"
+
+[[profiles]]
+name = "fallback"
 
 [plugins."github@openai-curated"]
 enabled = true
@@ -448,13 +458,37 @@ enabled = true
             self.assertEqual(
                 run_by_step[step]["env"]["NO_PROXY"], "127.0.0.1,localhost"
             )
-            self.assertIn("enabled = false", run_by_step[step]["provider_seed_config"])
+            self.assertEqual(
+                run_by_step[step]["env"]["http_proxy"], "http://proxy.internal:3128"
+            )
+            self.assertEqual(
+                run_by_step[step]["env"]["https_proxy"], "http://proxy.internal:3128"
+            )
+            self.assertEqual(
+                run_by_step[step]["env"]["no_proxy"], "127.0.0.1,localhost"
+            )
+            config = tomllib.loads(run_by_step[step]["provider_seed_config"])
+            self.assertEqual(config["provider"], "chatgpt")
+            self.assertEqual(config["launch_date"].isoformat(), "2026-04-21")
+            self.assertEqual(config["quiet_hours"].isoformat(), "08:30:00")
+            self.assertEqual(
+                config["cutover_at"].isoformat(), "2026-04-21T12:34:56+00:00"
+            )
+            self.assertEqual(
+                [profile["name"] for profile in config["profiles"]],
+                ["default", "fallback"],
+            )
+            self.assertFalse(config["plugins"]["github@openai-curated"]["enabled"])
         for step in ("brokk", "eitri", "kvasir", "kvasir-v2", "kvasir-v3"):
             self.assertIsNone(run_by_step[step]["network"])
             self.assertNotIn("HTTP_PROXY", run_by_step[step]["env"])
             self.assertNotIn("HTTPS_PROXY", run_by_step[step]["env"])
             self.assertNotIn("NO_PROXY", run_by_step[step]["env"])
-        self.assertIn("enabled = true", run_by_step["kvasir"]["provider_seed_config"])
+            self.assertNotIn("http_proxy", run_by_step[step]["env"])
+            self.assertNotIn("https_proxy", run_by_step[step]["env"])
+            self.assertNotIn("no_proxy", run_by_step[step]["env"])
+        kvasir_config = tomllib.loads(run_by_step["kvasir"]["provider_seed_config"])
+        self.assertTrue(kvasir_config["plugins"]["github@openai-curated"]["enabled"])
 
     def test_andvari_github_block_disabled_preserves_existing_provider_seed(
         self,

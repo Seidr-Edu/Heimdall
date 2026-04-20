@@ -169,10 +169,23 @@ enabled = true
             "127.0.0.1,localhost",
         )
         self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["http_proxy"],
+            "http://proxy.internal:3128",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["https_proxy"],
+            "http://proxy.internal:3128",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["no_proxy"],
+            "127.0.0.1,localhost",
+        )
+        self.assertEqual(
             run_by_step["smoke-andvari"]["env"]["HEIMDALL_ANDVARI_GITHUB_BLOCK"], "1"
         )
         self.assertIsNone(run_by_step["smoke-kvasir"]["network"])
         self.assertNotIn("HTTP_PROXY", run_by_step["smoke-kvasir"]["env"])
+        self.assertNotIn("http_proxy", run_by_step["smoke-kvasir"]["env"])
         self.assertIn(
             "enabled = false", run_by_step["smoke-andvari"]["provider_seed_config"]
         )
