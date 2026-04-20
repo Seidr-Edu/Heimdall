@@ -118,26 +118,26 @@ def build_step_manifest_payload(
             payload["write_scope_ignore_prefixes"] = write_scope_ignore_prefixes
         return payload
     if step in MIMIR_STEPS:
-        diagram_sources = mimir_diagram_sources(step, context.run_root)
+        snapshot_sources = mimir_snapshot_sources(step, context.run_root)
         candidate_label = _mimir_candidate_label(step)
         candidates = [
-            {"label": label, "diagram_relpath": f"{label}/diagram.puml"}
-            for label in diagram_sources
+            {"label": label, "snapshot_relpath": f"{label}/model_snapshot.json"}
+            for label in snapshot_sources
             if label != "original"
         ]
         if not candidates:
             candidates = [
                 {
                     "label": candidate_label,
-                    "diagram_relpath": f"{candidate_label}/diagram.puml",
+                    "snapshot_relpath": f"{candidate_label}/model_snapshot.json",
                 }
             ]
         return {
             "version": 1,
             "run_id": context.config.run_id,
-            "mode": "diagram",
+            "mode": "analytics",
             "baseline_label": "original",
-            "baseline_diagram_relpath": "original/diagram.puml",
+            "baseline_snapshot_relpath": "original/model_snapshot.json",
             "candidates": candidates,
         }
 
@@ -214,10 +214,16 @@ def brokk_source_manifest(run_root: Path) -> Path:
     return run_root / "services" / "brokk" / "run" / "inputs" / "source-manifest.json"
 
 
-def mimir_diagram_sources(step: str, run_root: Path) -> dict[str, Path]:
+def mimir_snapshot_sources(step: str, run_root: Path) -> dict[str, Path]:
     sources: dict[str, Path] = {}
     original = (
-        run_root / "services" / "eitri" / "run" / "artifacts" / "model" / "diagram.puml"
+        run_root
+        / "services"
+        / "eitri"
+        / "run"
+        / "artifacts"
+        / "model"
+        / "model_snapshot.json"
     )
     if original.is_file():
         sources["original"] = original
@@ -230,7 +236,7 @@ def mimir_diagram_sources(step: str, run_root: Path) -> dict[str, Path]:
         / "run"
         / "artifacts"
         / "model"
-        / "diagram.puml"
+        / "model_snapshot.json"
     )
     if generated.is_file():
         sources[candidate_label] = generated

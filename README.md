@@ -14,7 +14,8 @@ Heimdall run and share one `run_id`. Later branches wait only for the prior
 branch to reach a terminal state; they do not require the prior branch to pass.
 
 Within a branch, `Mimir` starts after `Eitri(generated*)` and compares the
-original Eitri `diagram.puml` against that branch's generated `diagram.puml`.
+original Eitri `model_snapshot.json` against that branch's generated
+`model_snapshot.json`.
 `Kvasir` and `Lidskjalv(generated*)` are independent of `Mimir`.
 
 It uses the Docker CLI through `subprocess`, renders one service-specific
@@ -345,7 +346,8 @@ Key rules:
 - unknown top-level keys are rejected
 - `eitri.writers` is passed through to original `eitri`, but Heimdall forces
   `writers.plantuml.generateDegradedDiagrams: false` for `eitri-generated*` so
-  generated-repo Eitri runs emit only `diagram.puml`
+  generated-repo Eitri runs still emit the base `diagram.puml` and
+  `model_snapshot.json`, but not degraded diagrams
 - nested `eitri.writers` keys must still match Eitri's real PlantUML config
   schema such as `diagramName`, `hidePrivate`, or `generateDegradedDiagrams`
 
@@ -454,6 +456,6 @@ That script:
 
 - builds a local Eitri image from `/Users/oleremidahl/Documents/Master/Eitri`
 - runs the service wrapper against a staged sample repo
-- verifies `diagram.puml` and `run_report.json`
+- verifies `diagram.puml`, `model_snapshot.json`, and `run_report.json`
 
 It skips immediately when the Docker daemon is unavailable.

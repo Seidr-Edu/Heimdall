@@ -575,7 +575,32 @@ def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: st
 def _run_mimir(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
     run_root = container.resolve("/run")
     comparisons_dir = run_root / "artifacts" / "comparisons"
+    logs_dir = run_root / "artifacts" / "mimir" / "logs"
     comparisons_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    error = _validate_mimir_contract(run_root, manifest)
+    if error is not None:
+        reason, detail = error
+        _write_json(
+            run_root / "outputs" / "run_report.json",
+            {
+                "status": "error",
+                "run_id": manifest.get("run_id"),
+                "reason": reason,
+                "status_detail": detail,
+                "mode": "analytics",
+                "comparison_count": 0,
+                "diagram_comparisons": {},
+                "artifacts": {
+                    "comparison_dir": "/run/artifacts/comparisons",
+                    "aggregate_path": "/run/artifacts/comparisons/aggregate.json",
+                    "logs_dir": "/run/artifacts/mimir/logs",
+                },
+            },
+        )
+        _write_summary(run_root / "outputs" / "summary.md", "Mimir")
+        return
+
     diagram_comparisons: dict[str, Any] = {}
     for candidate in manifest.get("candidates", []):
         if not isinstance(candidate, dict):
@@ -661,6 +686,114 @@ def _run_mimir(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
         },
     )
     _write_summary(run_root / "outputs" / "summary.md", "Mimir")
+
+
+def _validate_mimir_contract(
+    run_root: Path, manifest: dict[str, Any]
+) -> tuple[str, str] | None:
+    allowed_keys = {
+        "version",
+        "run_id",
+        "mode",
+        "baseline_label",
+        "baseline_snapshot_relpath",
+        "candidates",
+    }
+    unknown_keys = sorted(set(manifest) - allowed_keys)
+    if unknown_keys:
+        return ("invalid-manifest", f"Unknown manifest key: root.{unknown_keys[0]}")
+    if manifest.get("mode") != "analytics":
+        return ("invalid-manifest", "root.mode must be 'analytics'")
+
+    baseline_relpath = manifest.get("baseline_snapshot_relpath")
+    if not isinstance(baseline_relpath, str) or not baseline_relpath.strip():
+        return (
+            "invalid-manifest",
+            "root.baseline_snapshot_relpath must be a non-empty string",
+        )
+    if not _is_safe_snapshot_relpath(baseline_relpath):
+        return (
+            "invalid-manifest",
+            "root.baseline_snapshot_relpath must stay within /input/snapshots",
+        )
+
+    candidates = manifest.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return ("invalid-manifest", "root.candidates must be a non-empty list")
+
+    seen_labels: set[str] = set()
+    snapshots_dir = run_root / "inputs" / "snapshots"
+    baseline_error = _validate_mimir_snapshot_file(
+        snapshots_dir / baseline_relpath, baseline_relpath
+    )
+    if baseline_error is not None:
+        return baseline_error
+
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate, dict):
+            return (
+                "invalid-manifest",
+                f"root.candidates[{index}] must be a mapping/object",
+            )
+        candidate_allowed_keys = {"label", "snapshot_relpath"}
+        candidate_unknown_keys = sorted(set(candidate) - candidate_allowed_keys)
+        if candidate_unknown_keys:
+            return (
+                "invalid-manifest",
+                f"Unknown manifest key: root.candidates[{index}].{candidate_unknown_keys[0]}",
+            )
+        label = candidate.get("label")
+        if not isinstance(label, str) or not label.strip():
+            return (
+                "invalid-manifest",
+                f"root.candidates[{index}].label must be a non-empty string",
+            )
+        label = label.strip()
+        if label in seen_labels:
+            return ("invalid-manifest", f"Duplicate candidate label: {label}")
+        seen_labels.add(label)
+
+        relpath = candidate.get("snapshot_relpath")
+        if not isinstance(relpath, str) or not relpath.strip():
+            return (
+                "invalid-manifest",
+                f"root.candidates[{index}].snapshot_relpath must be a non-empty string",
+            )
+        if not _is_safe_snapshot_relpath(relpath):
+            return (
+                "invalid-manifest",
+                f"root.candidates[{index}].snapshot_relpath must stay within /input/snapshots",
+            )
+        snapshot_error = _validate_mimir_snapshot_file(snapshots_dir / relpath, relpath)
+        if snapshot_error is not None:
+            return snapshot_error
+    return None
+
+
+def _is_safe_snapshot_relpath(value: str) -> bool:
+    if value.startswith("/") or ":" in value:
+        return False
+    parts = Path(value).parts
+    return bool(parts) and all(part not in {"", ".."} for part in parts)
+
+
+def _validate_mimir_snapshot_file(
+    path: Path, relpath: str
+) -> tuple[str, str] | None:
+    if not path.is_file():
+        return ("missing-input", f"Snapshot input not found: {relpath}")
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return ("invalid-snapshot", f"Invalid snapshot JSON: {path} ({exc})")
+    if not isinstance(document, dict):
+        return ("invalid-snapshot", f"Snapshot root must be a JSON object: {path}")
+    if document.get("schema_version") != "uml_model_snapshot.v1":
+        return (
+            "invalid-snapshot",
+            f"Unsupported snapshot schema version: {document.get('schema_version')}",
+        )
+    return None
 
 
 def _run_kvasir(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:

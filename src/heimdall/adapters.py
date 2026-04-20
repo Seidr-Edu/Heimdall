@@ -9,7 +9,7 @@ from pathlib import Path
 from heimdall.manifests.services import (
     build_step_manifest_payload,
     build_step_runtime_hints,
-    mimir_diagram_sources,
+    mimir_snapshot_sources,
 )
 from heimdall.models import (
     ALL_STEPS,
@@ -302,13 +302,13 @@ def prepare_step(
         provider_seed_dest = provider_seed_dir
     elif step in MIMIR_STEPS:
         payload = build_step_manifest_payload(step, context)
-        input_diagrams_dir = run_dir / "inputs" / "diagrams"
-        ensure_directory(input_diagrams_dir, 0o755)
+        input_snapshots_dir = run_dir / "inputs" / "snapshots"
+        ensure_directory(input_snapshots_dir, 0o755)
         if stage_inputs:
-            for label, source_path in mimir_diagram_sources(
+            for label, source_path in mimir_snapshot_sources(
                 step, context.run_root
             ).items():
-                destination = input_diagrams_dir / label / "diagram.puml"
+                destination = input_snapshots_dir / label / "model_snapshot.json"
                 ensure_directory(destination.parent, 0o755)
                 shutil.copy2(source_path, destination)
                 destination.chmod(0o644)
