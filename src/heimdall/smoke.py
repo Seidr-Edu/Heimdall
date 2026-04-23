@@ -12,8 +12,8 @@ from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
     docker_network_for_step,
     env_for_step,
-    stage_provider_seed,
     should_block_github_for_service,
+    stage_provider_seed,
 )
 from heimdall.utils import (
     compact_run_id,
