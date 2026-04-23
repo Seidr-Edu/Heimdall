@@ -77,7 +77,17 @@ network that blocks GitHub, add:
 When enabled, Heimdall leaves every other step unchanged, attaches only the
 `andvari*` steps to that Docker network, injects `HTTP_PROXY`,
 `HTTPS_PROXY`, and `NO_PROXY`, and rewrites only the staged Andvari
-`config.toml` copy to disable the GitHub plugin.
+`config.toml` copy to disable GitHub tools.
+
+Regardless of block mode, Heimdall stages a minimal provider seed only for
+`andvari*`. The staged seed retains:
+
+- `auth.json`
+- `config.toml`
+- `skills/.system/**`
+
+It does not copy the full `CODEX_HOME` tree, so prior sessions, logs,
+memories, caches, and temporary files are not carried into Andvari.
 
 ## Queue worker
 
@@ -253,6 +263,8 @@ reason such as `codex-binary-incompatible-with-container`,
 
 If you enable the Andvari GitHub block for `smoke-provider`, Heimdall also:
 
+- rewrites only the staged Andvari `config.toml` copy to force
+  `web_search = "disabled"`
 - rewrites only the staged Andvari `config.toml` copy to force
   `plugins."github@openai-curated".enabled = false`
 - attaches only the Andvari probe container to the configured Docker network

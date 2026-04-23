@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -35,6 +36,17 @@ def stage_readable_tree(source: Path, destination: Path) -> None:
     _stage_tree(source, destination, preserve_executable_files=False)
 
 
+def stage_readable_paths(
+    source: Path, destination: Path, relative_paths: Iterable[str]
+) -> None:
+    _stage_tree_subset(
+        source,
+        destination,
+        relative_paths,
+        preserve_executable_files=False,
+    )
+
+
 def stage_executable_tree(source: Path, destination: Path) -> None:
     _stage_tree(source, destination, preserve_executable_files=True)
 
@@ -47,6 +59,42 @@ def _stage_tree(
         shutil.rmtree(destination)
     try:
         shutil.copytree(source, destination, copy_function=shutil.copy2)
+        _chmod_tree(destination, preserve_executable_files=preserve_executable_files)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Failed to stage readable copy from {source} to {destination}: {exc}"
+        ) from exc
+
+
+def _stage_tree_subset(
+    source: Path,
+    destination: Path,
+    relative_paths: Iterable[str],
+    *,
+    preserve_executable_files: bool,
+) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        shutil.rmtree(destination)
+    try:
+        if not source.is_dir():
+            raise FileNotFoundError(2, "No such file or directory", str(source))
+        destination.mkdir(parents=True, exist_ok=True)
+        for relpath in relative_paths:
+            relative = Path(relpath)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError(f"Invalid staged relative path: {relpath}")
+            source_path = source / relative
+            if not source_path.exists():
+                continue
+            destination_path = destination / relative
+            if source_path.is_dir():
+                shutil.copytree(
+                    source_path, destination_path, copy_function=shutil.copy2
+                )
+            else:
+                destination_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, destination_path)
         _chmod_tree(destination, preserve_executable_files=preserve_executable_files)
     except OSError as exc:
         raise RuntimeError(

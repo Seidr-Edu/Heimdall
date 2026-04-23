@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from heimdall.models import RuntimeConfig
-from heimdall.utils import write_text
+from heimdall.utils import stage_readable_paths, stage_readable_tree, write_text
 
 _GITHUB_PLUGIN_NAME = "github@openai-curated"
 _NO_PROXY_VALUE = "127.0.0.1,localhost"
 _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _ANDVARI_SERVICE_NAMES = {"andvari", "andvari-v2", "andvari-v3"}
+_MINIMAL_ANDVARI_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
 
 
 def andvari_github_block_enabled(runtime: RuntimeConfig) -> bool:
@@ -61,6 +62,23 @@ def env_for_step(step: str, runtime: RuntimeConfig) -> dict[str, str]:
     return andvari_proxy_env(runtime)
 
 
+def stage_provider_seed(
+    service_name: str,
+    source_codex_home: Path,
+    destination_seed: Path,
+    runtime: RuntimeConfig,
+) -> None:
+    if service_name in _ANDVARI_SERVICE_NAMES:
+        stage_readable_paths(
+            source_codex_home,
+            destination_seed,
+            _MINIMAL_ANDVARI_SEED_RELPATHS,
+        )
+        sanitize_andvari_codex_seed(service_name, destination_seed, runtime)
+        return
+    stage_readable_tree(source_codex_home, destination_seed)
+
+
 def sanitize_andvari_codex_seed(
     service_name: str,
     staged_codex_home: Path,
@@ -70,6 +88,7 @@ def sanitize_andvari_codex_seed(
         return
     config_path = staged_codex_home / "config.toml"
     payload = _load_toml_document(config_path)
+    payload["web_search"] = "disabled"
 
     plugins = payload.get("plugins")
     if not isinstance(plugins, dict):

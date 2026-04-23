@@ -12,14 +12,13 @@ from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
     docker_network_for_step,
     env_for_step,
-    sanitize_andvari_codex_seed,
     should_block_github_for_service,
+    stage_provider_seed,
 )
 from heimdall.utils import (
     compact_run_id,
     ensure_directory,
     stage_executable_tree,
-    stage_readable_tree,
     timestamp_utc,
     write_text,
 )
@@ -239,7 +238,7 @@ def _run_service_probe(
         }
 
     try:
-        stage_readable_tree(runtime.codex_home_dir, provider_seed_dir)
+        stage_provider_seed(service, runtime.codex_home_dir, provider_seed_dir, runtime)
     except RuntimeError as exc:
         detail = str(exc)
         write_text(log_path, f"{detail}\n")
@@ -249,8 +248,6 @@ def _run_service_probe(
             "reason": "stage-provider-seed-failed",
             "detail": detail,
         }
-
-    sanitize_andvari_codex_seed(service, provider_seed_dir, runtime)
 
     container_env = {"HEIMDALL_SMOKE_SERVICE": service}
     container_env.update(env_for_step(service, runtime))
@@ -443,11 +440,7 @@ echo "[smoke] provider bin dir:"
 ls -la /opt/provider/bin
 echo "[smoke] provider seed highlights:"
 if [[ -d /opt/provider-seed/codex-home ]]; then
-  for rel in auth.json config.toml sessions log tmp version.json .personality_migration; do
-    if [[ -e "/opt/provider-seed/codex-home/${rel}" ]]; then
-      ls -ld "/opt/provider-seed/codex-home/${rel}"
-    fi
-  done
+  find /opt/provider-seed/codex-home -mindepth 1 -maxdepth 4 | LC_ALL=C sort
 else
   echo "[smoke] provider seed dir missing"
 fi

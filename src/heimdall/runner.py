@@ -37,7 +37,7 @@ from heimdall.models import (
 from heimdall.provider_runtime import (
     docker_network_for_step,
     env_for_step,
-    sanitize_andvari_codex_seed,
+    stage_provider_seed,
 )
 from heimdall.reporting import write_artifact_index, write_run_outputs
 from heimdall.simpleyaml import dumps
@@ -46,7 +46,6 @@ from heimdall.state import StateStore, fingerprint_step, hash_file, load_existin
 from heimdall.utils import (
     ensure_directory,
     stage_executable_tree,
-    stage_readable_tree,
     timestamp_utc,
     write_text,
 )
@@ -358,12 +357,9 @@ def _execute_step(
             prepared.provider_seed_source is not None
             and prepared.provider_seed_dest is not None
         ):
-            stage_readable_tree(
-                prepared.provider_seed_source,
-                prepared.provider_seed_dest,
-            )
-            sanitize_andvari_codex_seed(
+            stage_provider_seed(
                 step,
+                prepared.provider_seed_source,
                 prepared.provider_seed_dest,
                 context.runtime,
             )

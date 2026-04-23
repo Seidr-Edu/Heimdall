@@ -134,6 +134,7 @@ def _handle_run(args: list[str]) -> int:
         "args": run_args,
         "manifest": manifest,
         "provider_seed_config": _read_provider_seed_config(container),
+        "provider_seed_entries": _read_provider_seed_entries(container),
     }
 
     def update(state: dict[str, Any]) -> None:
@@ -222,6 +223,27 @@ def _read_provider_seed_config(container: _ContainerMounts) -> str | None:
     if not path.is_file():
         return None
     return path.read_text(encoding="utf-8")
+
+
+def _read_provider_seed_entries(container: _ContainerMounts) -> list[str] | None:
+    try:
+        root = container.resolve("/opt/provider-seed/codex-home")
+    except RuntimeError:
+        return None
+    if not root.is_dir():
+        return None
+
+    entries: list[str] = []
+    for current_root, dir_names, file_names in os.walk(root):
+        current = Path(current_root)
+        current_rel = current.relative_to(root)
+        for dir_name in sorted(dir_names):
+            path = current_rel / dir_name if current_rel != Path(".") else Path(dir_name)
+            entries.append(f"{path.as_posix()}/")
+        for file_name in sorted(file_names):
+            path = current_rel / file_name if current_rel != Path(".") else Path(file_name)
+            entries.append(path.as_posix())
+    return sorted(entries)
 
 
 def _infer_step(
