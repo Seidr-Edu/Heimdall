@@ -334,6 +334,31 @@ class RunnerIntegrationTest(unittest.TestCase):
     def test_codex_home_is_staged_into_readable_provider_seed_mounts(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
         write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
+        write_file(
+            self.home_dir / "skills" / ".system" / "demo" / "SKILL.md",
+            "System skill\n",
+            mode=0o600,
+        )
+        write_file(
+            self.home_dir / "skills" / "custom" / "SKILL.md",
+            "User skill\n",
+            mode=0o600,
+        )
+        write_file(self.home_dir / "history.jsonl", "history\n", mode=0o600)
+        write_file(self.home_dir / "memories" / "note.md", "note\n", mode=0o600)
+        write_file(self.home_dir / "models_cache.json", "{}\n", mode=0o600)
+        write_file(self.home_dir / "state_main.sqlite", "db\n", mode=0o600)
+        write_file(self.home_dir / "logs_main.sqlite", "db\n", mode=0o600)
+        write_file(
+            self.home_dir / "shell_snapshots" / "session.txt",
+            "snapshot\n",
+            mode=0o600,
+        )
+        write_file(
+            self.home_dir / "sessions" / "run.jsonl",
+            "session\n",
+            mode=0o600,
+        )
         write_file(self.home_dir / "tmp" / "arg0", "transient\n", mode=0o600)
         write_file(
             self.home_dir / "log" / "codex-login.log",
@@ -376,6 +401,28 @@ class RunnerIntegrationTest(unittest.TestCase):
         )
         self.assertNotEqual(andvari_seed, self.home_dir)
         self.assertNotEqual(kvasir_seed, self.home_dir)
+        self.assertEqual(
+            run_by_step["andvari"]["provider_seed_entries"],
+            [
+                "auth.json",
+                "config.toml",
+                "skills/",
+                "skills/.system/",
+                "skills/.system/demo/",
+                "skills/.system/demo/SKILL.md",
+            ],
+        )
+        self.assertIn("history.jsonl", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertIn("log/", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertIn("memories/", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertIn(
+            "models_cache.json", run_by_step["kvasir"]["provider_seed_entries"]
+        )
+        self.assertIn("sessions/", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertIn(
+            "skills/custom/SKILL.md", run_by_step["kvasir"]["provider_seed_entries"]
+        )
+        self.assertIn("tmp/", run_by_step["kvasir"]["provider_seed_entries"])
 
         self.assertEqual(
             (self.home_dir / "tmp" / "arg0").stat().st_mode & 0o777,
@@ -478,6 +525,7 @@ enabled = true
                 [profile["name"] for profile in config["profiles"]],
                 ["default", "fallback"],
             )
+            self.assertEqual(config["web_search"], "disabled")
             self.assertFalse(config["plugins"]["github@openai-curated"]["enabled"])
         for step in ("brokk", "eitri", "kvasir", "kvasir-v2", "kvasir-v3"):
             self.assertIsNone(run_by_step[step]["network"])
@@ -522,7 +570,42 @@ enabled = true
         run_by_step = {entry["step"]: entry for entry in runs}
         self.assertIsNone(run_by_step["andvari"]["network"])
         self.assertNotIn("HTTP_PROXY", run_by_step["andvari"]["env"])
-        self.assertIn("enabled = true", run_by_step["andvari"]["provider_seed_config"])
+        andvari_config = tomllib.loads(run_by_step["andvari"]["provider_seed_config"])
+        self.assertTrue(andvari_config["plugins"]["github@openai-curated"]["enabled"])
+        self.assertNotIn("web_search", andvari_config)
+
+    def test_andvari_github_block_creates_minimal_config_when_missing(self) -> None:
+        write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+                "--andvari-github-block-enabled",
+                "--andvari-internal-network-name",
+                "andvari-egress",
+                "--andvari-proxy-url",
+                "http://proxy.internal:3128",
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+        andvari_config = tomllib.loads(run_by_step["andvari"]["provider_seed_config"])
+        self.assertEqual(andvari_config["web_search"], "disabled")
+        self.assertFalse(andvari_config["plugins"]["github@openai-curated"]["enabled"])
+        self.assertEqual(
+            run_by_step["andvari"]["provider_seed_entries"],
+            ["auth.json", "config.toml"],
+        )
+        self.assertIsNone(run_by_step["kvasir"]["provider_seed_config"])
 
     def test_codex_bin_dir_is_staged_into_executable_provider_bin_mounts(self) -> None:
         real_provider_bin = self.root / "real-provider-bin"

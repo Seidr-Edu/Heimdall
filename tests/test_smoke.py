@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -30,6 +31,18 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         write_file(self.pipeline_path, build_pipeline_manifest())
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
         write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
+        write_file(
+            self.home_dir / "skills" / ".system" / "demo" / "SKILL.md",
+            "System skill\n",
+            mode=0o600,
+        )
+        write_file(
+            self.home_dir / "skills" / "custom" / "SKILL.md",
+            "User skill\n",
+            mode=0o600,
+        )
+        write_file(self.home_dir / "history.jsonl", "history\n", mode=0o600)
+        write_file(self.home_dir / "sessions" / "run.jsonl", "session\n", mode=0o600)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tempdir)
@@ -108,6 +121,24 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         )
         self.assertIsNone(run_by_step["smoke-andvari"]["network"])
         self.assertNotIn("HTTP_PROXY", run_by_step["smoke-andvari"]["env"])
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["provider_seed_entries"],
+            [
+                "auth.json",
+                "config.toml",
+                "skills/",
+                "skills/.system/",
+                "skills/.system/demo/",
+                "skills/.system/demo/SKILL.md",
+            ],
+        )
+        self.assertIn(
+            "history.jsonl", run_by_step["smoke-kvasir"]["provider_seed_entries"]
+        )
+        self.assertIn(
+            "skills/custom/SKILL.md",
+            run_by_step["smoke-kvasir"]["provider_seed_entries"],
+        )
 
     def test_smoke_provider_andvari_github_block_enabled(self) -> None:
         write_file(
@@ -186,11 +217,14 @@ enabled = true
         self.assertIsNone(run_by_step["smoke-kvasir"]["network"])
         self.assertNotIn("HTTP_PROXY", run_by_step["smoke-kvasir"]["env"])
         self.assertNotIn("http_proxy", run_by_step["smoke-kvasir"]["env"])
-        self.assertIn(
-            "enabled = false", run_by_step["smoke-andvari"]["provider_seed_config"]
-        )
-        self.assertIn(
-            "enabled = true", run_by_step["smoke-kvasir"]["provider_seed_config"]
+        andvari_config = tomllib.loads(run_by_step["smoke-andvari"]["provider_seed_config"])
+        self.assertEqual(andvari_config["web_search"], "disabled")
+        self.assertFalse(andvari_config["plugins"]["github@openai-curated"]["enabled"])
+        kvasir_config = tomllib.loads(run_by_step["smoke-kvasir"]["provider_seed_config"])
+        self.assertTrue(kvasir_config["plugins"]["github@openai-curated"]["enabled"])
+        self.assertNotIn(
+            "web_search",
+            kvasir_config,
         )
 
     def test_smoke_provider_classifies_exec_format_failures(self) -> None:
