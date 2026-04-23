@@ -617,8 +617,21 @@ class AdapterTest(unittest.TestCase):
                 / "model"
                 / "diagram.puml"
             )
+            original_snapshot = original_diagram.with_name("model_snapshot.json")
+            generated_snapshot = generated_diagram.with_name("model_snapshot.json")
             write_file(original_diagram, "@startuml\nclass Original\n@enduml\n")
             write_file(generated_diagram, "@startuml\nclass Generated\n@enduml\n")
+            snapshot_payload = {
+                "schema_version": "uml_model_snapshot.v1",
+                "model_name": "diagram",
+                "packages": ["demo"],
+                "types": [],
+                "fields": [],
+                "methods": [],
+                "relations": [],
+            }
+            write_file(original_snapshot, json.dumps(snapshot_payload) + "\n")
+            write_file(generated_snapshot, json.dumps(snapshot_payload) + "\n")
             runtime = RuntimeConfig(
                 runs_root=root / "runs",
                 codex_bin_dir=root / "provider" / "bin",
@@ -646,28 +659,31 @@ class AdapterTest(unittest.TestCase):
             )
 
             mimir = prepare_step("mimir", context)
-            staged_generated_diagram = (
-                mimir.run_dir
-                / "inputs"
-                / "diagrams"
-                / "andvari_generated"
-                / "diagram.puml"
-            ).read_text(encoding="utf-8")
+            staged_generated_snapshot = json.loads(
+                (
+                    mimir.run_dir
+                    / "inputs"
+                    / "snapshots"
+                    / "andvari_generated"
+                    / "model_snapshot.json"
+                ).read_text(encoding="utf-8")
+            )
 
         mimir_manifest = loads(mimir.manifest_text)
-        self.assertEqual(mimir_manifest["mode"], "diagram")
+        self.assertEqual(mimir_manifest["mode"], "analytics")
         self.assertEqual(mimir_manifest["baseline_label"], "original")
         self.assertEqual(
-            mimir_manifest["baseline_diagram_relpath"], "original/diagram.puml"
+            mimir_manifest["baseline_snapshot_relpath"],
+            "original/model_snapshot.json",
         )
         self.assertEqual(mimir_manifest["candidates"][0]["label"], "andvari_generated")
         self.assertEqual(
-            mimir_manifest["candidates"][0]["diagram_relpath"],
-            "andvari_generated/diagram.puml",
+            mimir_manifest["candidates"][0]["snapshot_relpath"],
+            "andvari_generated/model_snapshot.json",
         )
         self.assertEqual(
-            staged_generated_diagram,
-            "@startuml\nclass Generated\n@enduml\n",
+            staged_generated_snapshot["schema_version"],
+            "uml_model_snapshot.v1",
         )
         self.assertEqual(mimir.env["MIMIR_MANIFEST"], "/run/config/manifest.yaml")
         self.assertEqual(

@@ -106,6 +106,92 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
                 self.output_dir / "services" / "andvari" / "input" / "probe-input"
             ).resolve(),
         )
+        self.assertIsNone(run_by_step["smoke-andvari"]["network"])
+        self.assertNotIn("HTTP_PROXY", run_by_step["smoke-andvari"]["env"])
+
+    def test_smoke_provider_andvari_github_block_enabled(self) -> None:
+        write_file(
+            self.home_dir / "config.toml",
+            """
+provider = "chatgpt"
+
+[plugins."github@openai-curated"]
+enabled = true
+""".strip()
+            + "\n",
+            mode=0o600,
+        )
+
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+                "--andvari-github-block-enabled",
+                "--andvari-internal-network-name",
+                "andvari-egress",
+                "--andvari-proxy-url",
+                "http://proxy.internal:3128",
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(summary["status"], "passed")
+        log_text = (self.output_dir / "logs" / "andvari.log").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Andvari GitHub blocking probes enabled", log_text)
+        self.assertIn("github probe blocked: https://github.com", log_text)
+        self.assertIn("maven canary passed", log_text)
+        self.assertIn("gradle canary passed", log_text)
+
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+        self.assertEqual(run_by_step["smoke-andvari"]["network"], "andvari-egress")
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["HTTP_PROXY"],
+            "http://proxy.internal:3128",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["HTTPS_PROXY"],
+            "http://proxy.internal:3128",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["NO_PROXY"],
+            "127.0.0.1,localhost",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["http_proxy"],
+            "http://proxy.internal:3128",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["https_proxy"],
+            "http://proxy.internal:3128",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["no_proxy"],
+            "127.0.0.1,localhost",
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["env"]["HEIMDALL_ANDVARI_GITHUB_BLOCK"], "1"
+        )
+        self.assertIsNone(run_by_step["smoke-kvasir"]["network"])
+        self.assertNotIn("HTTP_PROXY", run_by_step["smoke-kvasir"]["env"])
+        self.assertNotIn("http_proxy", run_by_step["smoke-kvasir"]["env"])
+        self.assertIn(
+            "enabled = false", run_by_step["smoke-andvari"]["provider_seed_config"]
+        )
+        self.assertIn(
+            "enabled = true", run_by_step["smoke-kvasir"]["provider_seed_config"]
+        )
 
     def test_smoke_provider_classifies_exec_format_failures(self) -> None:
         completed = self._run_cli(

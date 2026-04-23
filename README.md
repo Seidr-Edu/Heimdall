@@ -14,7 +14,8 @@ Heimdall run and share one `run_id`. Later branches wait only for the prior
 branch to reach a terminal state; they do not require the prior branch to pass.
 
 Within a branch, `Mimir` starts after `Eitri(generated*)` and compares the
-original Eitri `diagram.puml` against that branch's generated `diagram.puml`.
+original Eitri `model_snapshot.json` against that branch's generated
+`model_snapshot.json`.
 `Kvasir` and `Lidskjalv(generated*)` are independent of `Mimir`.
 
 It uses the Docker CLI through `subprocess`, renders one service-specific
@@ -64,6 +65,20 @@ entrypoints are `heimdall` and `orchestrator`. If `--codex-host-bin-dir` is
 omitted, Heimdall uses `--codex-bin-dir` for both host preflight and container
 mounts.
 
+If you want Heimdall to route only `Andvari` through a proxy-backed Docker
+network that blocks GitHub, add:
+
+```bash
+  --andvari-github-block-enabled \
+  --andvari-internal-network-name andvari-egress \
+  --andvari-proxy-url http://andvari-proxy.internal:3128
+```
+
+When enabled, Heimdall leaves every other step unchanged, attaches only the
+`andvari*` steps to that Docker network, injects `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NO_PROXY`, and rewrites only the staged Andvari
+`config.toml` copy to disable the GitHub plugin.
+
 ## Queue worker
 
 Heimdall can also run as a long-lived VPS worker that owns a FIFO queue. The
@@ -79,6 +94,17 @@ Worker config example:
 
 - [examples/worker.example.yaml](examples/worker.example.yaml)
 - [examples/heimdall-worker.service](examples/heimdall-worker.service)
+
+The worker config also supports an opt-in Andvari-only GitHub block:
+
+- `andvari_github_block_enabled: true`
+- `andvari_internal_network_name: andvari-egress`
+- `andvari_proxy_url: http://andvari-proxy.internal:3128`
+
+Leave `andvari_github_block_enabled: false` to preserve the current behavior.
+When enabled, Heimdall assumes the configured proxy denies GitHub-family
+traffic for the Andvari container while still allowing Codex API traffic and
+normal dependency resolution.
 
 Submit one job from your local machine over SSH:
 
@@ -225,6 +251,32 @@ reason such as `codex-binary-incompatible-with-container`,
 `codex-auth-unusable-in-container`, or
 `codex-exec-workspace-access-failed`.
 
+If you enable the Andvari GitHub block for `smoke-provider`, Heimdall also:
+
+- rewrites only the staged Andvari `config.toml` copy to force
+  `plugins."github@openai-curated".enabled = false`
+- attaches only the Andvari probe container to the configured Docker network
+- injects only the Andvari probe container with `HTTP_PROXY`, `HTTPS_PROXY`,
+  and `NO_PROXY`
+- verifies `curl` to `github.com`, `api.github.com`, and
+  `raw.githubusercontent.com` fails
+- verifies `git ls-remote https://github.com/...` fails
+- verifies a Maven canary test project still resolves dependencies and passes
+- verifies a Gradle canary test project still resolves dependencies and passes
+
+Heimdall does not implement the proxy itself. The external proxy or egress
+policy must deny at least:
+
+- `github.com`
+- `api.github.com`
+- `gist.github.com`
+- `raw.githubusercontent.com`
+- `codeload.github.com`
+- `objects.githubusercontent.com`
+- `*.githubusercontent.com`
+- `*.githubassets.com`
+- `ghcr.io`
+
 ## Local run
 
 Heimdall reads Sonar credentials from the shell environment, not from the
@@ -294,7 +346,8 @@ Key rules:
 - unknown top-level keys are rejected
 - `eitri.writers` is passed through to original `eitri`, but Heimdall forces
   `writers.plantuml.generateDegradedDiagrams: false` for `eitri-generated*` so
-  generated-repo Eitri runs emit only `diagram.puml`
+  generated-repo Eitri runs still emit the base `diagram.puml` and
+  `model_snapshot.json`, but not degraded diagrams
 - nested `eitri.writers` keys must still match Eitri's real PlantUML config
   schema such as `diagramName`, `hidePrivate`, or `generateDegradedDiagrams`
 
@@ -403,6 +456,6 @@ That script:
 
 - builds a local Eitri image from `/Users/oleremidahl/Documents/Master/Eitri`
 - runs the service wrapper against a staged sample repo
-- verifies `diagram.puml` and `run_report.json`
+- verifies `diagram.puml`, `model_snapshot.json`, and `run_report.json`
 
 It skips immediately when the Docker daemon is unavailable.
