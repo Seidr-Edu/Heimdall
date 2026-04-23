@@ -89,7 +89,9 @@ def _stage_tree_subset(
                 continue
             destination_path = destination / relative
             if source_path.is_dir():
-                shutil.copytree(source_path, destination_path, copy_function=shutil.copy2)
+                shutil.copytree(
+                    source_path, destination_path, copy_function=shutil.copy2
+                )
             else:
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, destination_path)

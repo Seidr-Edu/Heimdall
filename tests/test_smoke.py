@@ -217,10 +217,14 @@ enabled = true
         self.assertIsNone(run_by_step["smoke-kvasir"]["network"])
         self.assertNotIn("HTTP_PROXY", run_by_step["smoke-kvasir"]["env"])
         self.assertNotIn("http_proxy", run_by_step["smoke-kvasir"]["env"])
-        andvari_config = tomllib.loads(run_by_step["smoke-andvari"]["provider_seed_config"])
+        andvari_config = tomllib.loads(
+            run_by_step["smoke-andvari"]["provider_seed_config"]
+        )
         self.assertEqual(andvari_config["web_search"], "disabled")
         self.assertFalse(andvari_config["plugins"]["github@openai-curated"]["enabled"])
-        kvasir_config = tomllib.loads(run_by_step["smoke-kvasir"]["provider_seed_config"])
+        kvasir_config = tomllib.loads(
+            run_by_step["smoke-kvasir"]["provider_seed_config"]
+        )
         self.assertTrue(kvasir_config["plugins"]["github@openai-curated"]["enabled"])
         self.assertNotIn(
             "web_search",
