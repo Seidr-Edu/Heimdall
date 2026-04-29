@@ -16,6 +16,11 @@ The VPS still has to make that true in practice. The "all internet fetches go
 through the proxy" guarantee exists only after host/network egress enforcement
 is in place for the Andvari Docker subnet.
 
+In other words, proxy use must not be trust-based. Tools may ignore
+`HTTP_PROXY`, clear proxy environment variables, use their own socket code, or
+try non-HTTP paths such as SSH or direct DNS. Those attempts must fail at the
+host/network layer rather than quietly reaching the internet.
+
 ## What Heimdall Expects
 
 - `andvari`, `andvari-v2`, and `andvari-v3` run on the configured
@@ -51,7 +56,8 @@ is in place for the Andvari Docker subnet.
 
 ## Denylist
 
-The proxy stays denylist-based. It must deny:
+The proxy stays denylist-based. It must deny the following effective
+destinations:
 
 - `github.com`
 - `api.github.com`
@@ -62,6 +68,17 @@ The proxy stays denylist-based. It must deny:
 - `*.githubusercontent.com`
 - `*.githubassets.com`
 - `ghcr.io`
+
+If Squid implements this with a `dstdomain` ACL, use a Squid-safe equivalent
+representation rather than repeating redundant parent/subdomain entries. A
+compact form such as the following is acceptable as long as it preserves the
+same effective deny policy:
+
+- `github.com`
+- `.github.com`
+- `ghcr.io`
+- `.githubusercontent.com`
+- `.githubassets.com`
 
 Other proxied traffic may remain allowed.
 
@@ -78,6 +95,10 @@ the Andvari Docker subnet.
 - Block SSH bypasses such as `git@github.com`.
 - Block direct DNS egress from that subnet.
 - Keep Docker IPv6 disabled unless equivalent IPv6 enforcement is added.
+
+Once that enforcement is in place, a tool does not need to "honor" the proxy in
+the trust sense. If it uses Squid, it works and is logged. If it tries any
+other path, it should fail.
 
 If you also want visibility into blocked bypass attempts, add firewall logging
 at this layer. Squid can only log traffic that actually reaches Squid.

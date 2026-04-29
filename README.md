@@ -92,6 +92,10 @@ actual "everything goes through the proxy" guarantee depends on the VPS-side
 network enforcement described in
 [docs/andvari_proxy_infra.md](docs/andvari_proxy_infra.md).
 
+That guarantee should not depend on tools politely honoring `HTTP_PROXY`.
+`andvari*` steps may only use the proxy as the successful path; direct attempts
+such as raw TCP, SSH, or direct DNS must be blocked by the VPS network policy.
+
 Heimdall stages a minimal provider seed only for `andvari*`. The staged seed
 retains:
 
@@ -297,7 +301,7 @@ Heimdall does not implement the proxy itself. The external proxy must log both
 allowed and denied proxied requests to `/var/log/squid/andvari-access.jsonl`,
 and the host/network layer must block direct bypasses such as raw TCP, SSH, and
 direct DNS from the `andvari-egress` subnet. The proxy or egress policy must
-deny at least:
+deny at least the following effective destinations:
 
 - `github.com`
 - `api.github.com`
@@ -308,6 +312,15 @@ deny at least:
 - `*.githubusercontent.com`
 - `*.githubassets.com`
 - `ghcr.io`
+
+For Squid `dstdomain` ACLs, that policy may be represented in a more compact,
+Squid-safe form such as:
+
+- `github.com`
+- `.github.com`
+- `ghcr.io`
+- `.githubusercontent.com`
+- `.githubassets.com`
 
 If Maven, Gradle, or similar tools use HTTP(S) through Squid, that traffic
 should also appear in the Squid log as allowed. If they bypass Squid entirely,

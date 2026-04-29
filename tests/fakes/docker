@@ -75,11 +75,29 @@ def _handle_run(args: list[str]) -> int:
     mounts: list[dict[str, Any]] = []
     entrypoint: str | None = None
     network_name: str | None = None
+    cap_drop: list[str] = []
+    security_opts: list[str] = []
     idx = 0
     while idx < len(args):
         token = args[idx]
         if token == "--rm":
             idx += 1
+            continue
+        if token.startswith("--cap-drop="):
+            cap_drop.append(token.split("=", 1)[1])
+            idx += 1
+            continue
+        if token == "--cap-drop":
+            cap_drop.append(args[idx + 1])
+            idx += 2
+            continue
+        if token.startswith("--security-opt="):
+            security_opts.append(token.split("=", 1)[1])
+            idx += 1
+            continue
+        if token == "--security-opt":
+            security_opts.append(args[idx + 1])
+            idx += 2
             continue
         if token == "--network":
             network_name = args[idx + 1]
@@ -129,6 +147,8 @@ def _handle_run(args: list[str]) -> int:
         "mode": mode,
         "network": network_name,
         "entrypoint": entrypoint,
+        "cap_drop": cap_drop,
+        "security_opts": security_opts,
         "env": env_vars,
         "mounts": mounts,
         "args": run_args,

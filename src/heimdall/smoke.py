@@ -7,7 +7,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
-from heimdall.andvari_proxy import uses_andvari_proxy_runtime
+from heimdall.andvari_proxy import (
+    ProxyAccessCapture,
+    begin_proxy_access_capture,
+    finish_proxy_access_capture,
+    proxy_access_artifact_path,
+    uses_andvari_proxy_runtime,
+)
 from heimdall.images import DockerError, resolve_image, run_container
 from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
@@ -54,6 +60,7 @@ class ServiceProbeResult(TypedDict):
     provider_seed_dir: str
     probe_input_dir: str
     runtime_codex_home: str
+    proxy_access_log_path: str | None
 
 
 class SmokeSummary(TypedDict):
@@ -165,6 +172,9 @@ def _run_service_probe(
     provider_seed_dir = service_root / "input" / "provider-seed"
     probe_input_dir = service_root / "input" / "probe-input"
     runtime_codex_home = run_dir / "provider-state" / "codex-home"
+    proxy_log_artifact_path = (
+        proxy_access_artifact_path(run_dir) if uses_andvari_proxy_runtime(service) else None
+    )
     log_path = logs_dir / f"{service}.log"
 
     ensure_directory(service_root, 0o755)
@@ -184,6 +194,9 @@ def _run_service_probe(
         "provider_seed_dir": str(provider_seed_dir),
         "probe_input_dir": str(probe_input_dir),
         "runtime_codex_home": str(runtime_codex_home),
+        "proxy_access_log_path": (
+            str(proxy_log_artifact_path) if proxy_log_artifact_path is not None else None
+        ),
     }
 
     stage_conflict = _stage_conflict(runtime.codex_bin_dir, provider_bin_dir)
@@ -253,7 +266,21 @@ def _run_service_probe(
     container_env.update(env_for_step(service, runtime))
     if uses_andvari_proxy_runtime(service):
         container_env["HEIMDALL_ANDVARI_PROXY_ENFORCED"] = "1"
+    proxy_capture: ProxyAccessCapture | None = None
+    try:
+        proxy_capture = begin_proxy_access_capture(service)
+    except RuntimeError as exc:
+        detail = str(exc)
+        write_text(log_path, f"{detail}\n")
+        return {
+            **base_result,
+            "resolved_image_id": resolved_image_id,
+            "reason": "proxy-access-log-capture-failed",
+            "detail": detail,
+            "hint": _proxy_capture_failure_hint(),
+        }
 
+    failure_result: ServiceProbeResult | None = None
     try:
         run_container(
             image_ref,
@@ -280,26 +307,40 @@ def _run_service_probe(
         _append_log(log_path, f"\n[heimdall][smoke] classified reason: {reason}\n")
         if hint is not None:
             _append_log(log_path, f"[heimdall][smoke] hint: {hint}\n")
-        return {
+        failure_result = {
             **base_result,
             "resolved_image_id": resolved_image_id,
             "reason": reason,
             "detail": detail,
             "hint": hint,
         }
-
-    if not runtime_codex_home.is_dir():
+    if failure_result is None and not runtime_codex_home.is_dir():
         detail = (
             "Probe finished without creating /run/provider-state/codex-home inside "
             "the service run directory."
         )
         _append_log(log_path, f"\n[heimdall][smoke] {detail}\n")
-        return {
+        failure_result = {
             **base_result,
             "resolved_image_id": resolved_image_id,
             "reason": "runtime-codex-home-not-created",
             "detail": detail,
         }
+    proxy_capture_error = _finalize_proxy_capture(
+        proxy_capture,
+        proxy_log_artifact_path,
+        log_path,
+    )
+    if proxy_capture_error is not None:
+        return {
+            **base_result,
+            "resolved_image_id": resolved_image_id,
+            "reason": "proxy-access-log-capture-failed",
+            "detail": str(proxy_capture_error),
+            "hint": _proxy_capture_failure_hint(),
+        }
+    if failure_result is not None:
+        return failure_result
 
     return {
         **base_result,
@@ -416,6 +457,8 @@ if [[ "${HEIMDALL_ANDVARI_PROXY_ENFORCED:-0}" == "1" ]]; then
   require_tool curl
   require_tool git
   python_bin="$(resolve_python)"
+  curl -fsS --max-time 15 https://example.com >/dev/null
+  echo "[smoke] proxy probe allowed: https://example.com"
   expect_blocked "https://github.com" curl -fsS --max-time 15 https://github.com
   expect_blocked "https://api.github.com" curl -fsS --max-time 15 https://api.github.com
   expect_blocked \
@@ -556,6 +599,29 @@ def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
     return None
 
 
+def _proxy_capture_failure_hint() -> str:
+    return (
+        "Heimdall could not preserve the Andvari proxy log slice. Confirm "
+        "/var/log/squid/andvari-access.jsonl exists, is readable by the worker, "
+        "and is not truncated or replaced while the smoke probe runs."
+    )
+
+
+def _finalize_proxy_capture(
+    capture: ProxyAccessCapture | None,
+    destination: Path | None,
+    log_path: Path,
+) -> RuntimeError | None:
+    if capture is None or destination is None:
+        return None
+    try:
+        finish_proxy_access_capture(capture, destination)
+    except RuntimeError as exc:
+        _append_log(log_path, f"\n[heimdall][smoke] {exc}\n")
+        return exc
+    return None
+
+
 def _write_probe_input(path: Path) -> None:
     ensure_directory(path, 0o755)
     write_text(path / SMOKE_INPUT_FILENAME, SMOKE_INPUT_CONTENT)
@@ -644,6 +710,9 @@ def _render_summary(summary: SmokeSummary) -> str:
                 f"- Log: `{result['log_path']}`",
             ]
         )
+        proxy_access_log = result.get("proxy_access_log_path")
+        if proxy_access_log is not None:
+            lines.append(f"- Proxy access log: `{proxy_access_log}`")
         detail = result.get("detail")
         if detail is not None:
             lines.append(f"- Detail: {detail}")

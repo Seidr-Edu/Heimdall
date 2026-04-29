@@ -122,6 +122,10 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
             ).resolve(),
         )
         self.assertEqual(run_by_step["smoke-andvari"]["network"], "andvari-egress")
+        self.assertEqual(run_by_step["smoke-andvari"]["cap_drop"], ["ALL"])
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["security_opts"], ["no-new-privileges"]
+        )
         self.assertEqual(
             run_by_step["smoke-andvari"]["env"]["HTTP_PROXY"],
             "http://proxy.internal:3128",
@@ -197,6 +201,10 @@ enabled = true
         runs = load_fake_state(self.state_path)["runs"]
         run_by_step = {entry["step"]: entry for entry in runs}
         self.assertEqual(run_by_step["smoke-andvari"]["network"], "andvari-egress")
+        self.assertEqual(run_by_step["smoke-andvari"]["cap_drop"], ["ALL"])
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["security_opts"], ["no-new-privileges"]
+        )
         self.assertEqual(
             run_by_step["smoke-andvari"]["env"]["HTTP_PROXY"],
             "http://proxy.internal:3128",
@@ -225,6 +233,10 @@ enabled = true
             run_by_step["smoke-andvari"]["env"]["HEIMDALL_ANDVARI_PROXY_ENFORCED"], "1"
         )
         self.assertIsNone(run_by_step["smoke-kvasir"]["network"])
+        self.assertEqual(run_by_step["smoke-kvasir"]["cap_drop"], ["ALL"])
+        self.assertEqual(
+            run_by_step["smoke-kvasir"]["security_opts"], ["no-new-privileges"]
+        )
         self.assertNotIn("HTTP_PROXY", run_by_step["smoke-kvasir"]["env"])
         self.assertNotIn("http_proxy", run_by_step["smoke-kvasir"]["env"])
         andvari_config = tomllib.loads(

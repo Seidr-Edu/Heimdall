@@ -7,6 +7,8 @@ from pathlib import Path
 
 from heimdall.models import ImageRefs, PullPolicy, ResolvedImages
 
+_CONTAINER_SECURITY_OPTS = ("--cap-drop=ALL", "--security-opt=no-new-privileges")
+
 
 class DockerError(RuntimeError):
     """Raised when Docker CLI interactions fail."""
@@ -73,6 +75,7 @@ def run_container(
     command_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = ["docker", "run", "--rm"]
+    command.extend(_CONTAINER_SECURITY_OPTS)
     if network_name is not None:
         command.extend(["--network", network_name])
     if entrypoint is not None:
