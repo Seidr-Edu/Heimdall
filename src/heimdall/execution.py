@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from heimdall.andvari_proxy import validate_andvari_proxy_access_log
 from heimdall.images import ensure_docker_available, resolve_images
 from heimdall.manifests.pipeline import load_pipeline_manifest
 from heimdall.models import PipelineConfig, PullPolicy, RuntimeConfig
@@ -21,9 +22,8 @@ def build_runtime(
     pull_policy: PullPolicy,
     verbose: bool,
     *,
-    andvari_github_block_enabled: bool = False,
-    andvari_internal_network_name: str | None = None,
-    andvari_proxy_url: str | None = None,
+    andvari_internal_network_name: str,
+    andvari_proxy_url: str,
 ) -> RuntimeConfig:
     runs_root = runs_root.resolve()
     codex_bin_dir = codex_bin_dir.resolve()
@@ -43,7 +43,6 @@ def build_runtime(
         sonar_token_present=bool(os.environ.get("SONAR_TOKEN")),
         sonar_organization=os.environ.get("SONAR_ORGANIZATION"),
         verbose=verbose,
-        andvari_github_block_enabled=andvari_github_block_enabled,
         andvari_internal_network_name=andvari_internal_network_name,
         andvari_proxy_url=andvari_proxy_url,
     )
@@ -67,7 +66,7 @@ def preflight(config: PipelineConfig, runtime: RuntimeConfig) -> None:
         )
     if not runtime.codex_home_dir.is_dir():
         raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
-    _validate_andvari_github_block_runtime(runtime)
+    validate_andvari_proxy_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
         print("[heimdall] docker daemon reachable", file=sys.stderr, flush=True)
@@ -112,7 +111,7 @@ def preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         )
     if not runtime.codex_home_dir.is_dir():
         raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
-    _validate_andvari_github_block_runtime(runtime)
+    validate_andvari_proxy_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
         print("[heimdall] docker daemon reachable", file=sys.stderr, flush=True)
@@ -140,18 +139,17 @@ def check_codex_login(runtime: RuntimeConfig) -> None:
         raise PreflightError(f"codex login status failed: {exc}") from exc
 
 
-def _validate_andvari_github_block_runtime(runtime: RuntimeConfig) -> None:
-    if not runtime.andvari_github_block_enabled:
-        return
-    if not runtime.andvari_internal_network_name:
+def validate_andvari_proxy_runtime(runtime: RuntimeConfig) -> None:
+    if not runtime.andvari_internal_network_name.strip():
         raise PreflightError(
-            "Andvari GitHub blocking is enabled, but no internal Docker network "
-            "name was configured."
+            "Andvari proxy enforcement requires an internal Docker network name."
         )
-    if not runtime.andvari_proxy_url:
-        raise PreflightError(
-            "Andvari GitHub blocking is enabled, but no proxy URL was configured."
-        )
+    if not runtime.andvari_proxy_url.strip():
+        raise PreflightError("Andvari proxy enforcement requires a proxy URL.")
+    try:
+        validate_andvari_proxy_access_log()
+    except RuntimeError as exc:
+        raise PreflightError(str(exc)) from exc
 
 
 def run_pipeline_manifest_path(

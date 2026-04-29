@@ -153,7 +153,7 @@ def _handle_run(args: list[str]) -> int:
     elif step == "eitri" or step.startswith("eitri-generated"):
         _run_eitri(container, manifest, mode)
     elif step == "andvari" or step.startswith("andvari-"):
-        _run_andvari(container, manifest, mode)
+        _run_andvari(step, container, manifest, mode)
     elif step == "mimir" or step.startswith("mimir-"):
         _run_mimir(container, manifest, mode)
     elif step == "kvasir" or step.startswith("kvasir-"):
@@ -213,6 +213,31 @@ def _load_manifest(container: _ContainerMounts, env_vars: dict[str, str]) -> dic
         return {}
     loaded = loads(path.read_text(encoding="utf-8"))
     return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def _proxy_access_log_path() -> Path | None:
+    raw = os.environ.get("HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH")
+    if raw is None or not raw.strip():
+        return None
+    return Path(raw).resolve()
+
+
+def _append_proxy_access_log(step: str, entries: list[dict[str, Any]]) -> None:
+    path = _proxy_access_log_path()
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for entry in entries:
+            payload = {"step": step, **entry}
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _truncate_proxy_access_log() -> None:
+    path = _proxy_access_log_path()
+    if path is None:
+        return
+    path.write_text("", encoding="utf-8")
 
 
 def _read_provider_seed_config(container: _ContainerMounts) -> str | None:
@@ -342,10 +367,10 @@ def _run_provider_smoke(
         print("[smoke][error] codex exec did not create /run/workspace/smoke-result.txt")
         return 1
 
-    github_block_enabled = env_vars.get("HEIMDALL_ANDVARI_GITHUB_BLOCK") == "1"
-    if github_block_enabled:
+    proxy_enforced = env_vars.get("HEIMDALL_ANDVARI_PROXY_ENFORCED") == "1"
+    if proxy_enforced:
         if network_name is None:
-            print("[smoke][error] github access unexpectedly succeeded: missing docker network")
+            print("[smoke][error] proxy probe unexpectedly succeeded: missing docker network")
             return 1
         required_proxy_env = {
             "HTTP_PROXY",
@@ -356,16 +381,16 @@ def _run_provider_smoke(
             "no_proxy",
         }
         if not required_proxy_env.issubset(env_vars):
-            print("[smoke][error] github access unexpectedly succeeded: missing proxy env")
+            print("[smoke][error] proxy probe unexpectedly succeeded: missing proxy env")
             return 1
         if mode == "github-probe-fail":
-            print("[smoke][error] github access unexpectedly succeeded: https://github.com")
+            print("[smoke][error] proxy probe unexpectedly succeeded: https://github.com")
             return 1
-        if mode == "maven-canary-fail":
-            print("[smoke][error] maven canary failed")
+        if mode == "curl-bypass-fail":
+            print("[smoke][error] proxy probe unexpectedly succeeded: curl --noproxy '*' https://github.com")
             return 1
-        if mode == "gradle-canary-fail":
-            print("[smoke][error] gradle canary failed")
+        if mode == "raw-socket-fail":
+            print("[smoke][error] proxy probe unexpectedly succeeded: python raw tcp github.com:443")
             return 1
 
     print("codex-cli 0.113.0")
@@ -375,18 +400,18 @@ def _run_provider_smoke(
     (workspace_dir / "last-message.txt").write_text("SMOKE_OK\n", encoding="utf-8")
     print("SMOKE_OK")
     print("[smoke] codex exec workspace probe passed")
-    if github_block_enabled:
-        print("[smoke] Andvari GitHub blocking probes enabled")
-        print("[smoke] github probe blocked: https://github.com")
-        print("[smoke] github probe blocked: https://api.github.com")
+    if proxy_enforced:
+        print("[smoke] Andvari proxy probes enabled")
+        print("[smoke] proxy probe blocked: https://github.com")
+        print("[smoke] proxy probe blocked: https://api.github.com")
         print(
-            "[smoke] github probe blocked: https://raw.githubusercontent.com/octocat/Hello-World/master/README"
+            "[smoke] proxy probe blocked: https://raw.githubusercontent.com/octocat/Hello-World/master/README"
         )
         print(
-            "[smoke] github probe blocked: git ls-remote https://github.com/octocat/Hello-World.git"
+            "[smoke] proxy probe blocked: git ls-remote https://github.com/octocat/Hello-World.git"
         )
-        print("[smoke] maven canary passed")
-        print("[smoke] gradle canary passed")
+        print("[smoke] proxy probe blocked: curl --noproxy '*' https://github.com")
+        print("[smoke] proxy probe blocked: python raw tcp github.com:443")
     print("[smoke] provider smoke passed")
     return 0
 
@@ -550,7 +575,9 @@ def _run_eitri(container: _ContainerMounts, manifest: dict[str, Any], mode: str)
     _write_summary(run_root / "outputs" / "summary.md", "Eitri")
 
 
-def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: str) -> None:
+def _run_andvari(
+    step: str, container: _ContainerMounts, manifest: dict[str, Any], mode: str
+) -> None:
     run_root = container.resolve("/run")
     provider_state = run_root / "provider-state" / "codex-home" / "sessions"
     service_runtime = run_root / "service-runtime"
@@ -568,6 +595,13 @@ def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: st
     (service_runtime / "active-provider.pid").write_text("1234\n", encoding="utf-8")
     (runner_internal / "run.log").write_text("runner internals\n", encoding="utf-8")
     (generated_repo / "README.md").write_text("generated repo\n", encoding="utf-8")
+    _append_proxy_access_log(
+        step,
+        [
+            {"step": step, "decision": "allow", "target": "api.openai.com:443"},
+            {"step": step, "decision": "deny", "target": "github.com:443"},
+        ],
+    )
     status = "passed"
     reason = None
     if mode == "failed-report":
@@ -576,6 +610,8 @@ def _run_andvari(container: _ContainerMounts, manifest: dict[str, Any], mode: st
     elif mode == "error-report":
         status = "error"
         reason = "fake-andvari-error"
+    elif mode == "proxy-log-truncated":
+        _truncate_proxy_access_log()
     _write_json(
         run_root / "outputs" / "run_report.json",
         {

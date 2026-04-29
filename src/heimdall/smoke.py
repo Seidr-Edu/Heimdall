@@ -7,12 +7,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
+from heimdall.andvari_proxy import uses_andvari_proxy_runtime
 from heimdall.images import DockerError, resolve_image, run_container
 from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
     docker_network_for_step,
     env_for_step,
-    should_block_github_for_service,
     stage_provider_seed,
 )
 from heimdall.utils import (
@@ -251,8 +251,8 @@ def _run_service_probe(
 
     container_env = {"HEIMDALL_SMOKE_SERVICE": service}
     container_env.update(env_for_step(service, runtime))
-    if should_block_github_for_service(service, runtime):
-        container_env["HEIMDALL_ANDVARI_GITHUB_BLOCK"] = "1"
+    if uses_andvari_proxy_runtime(service):
+        container_env["HEIMDALL_ANDVARI_PROXY_ENFORCED"] = "1"
 
     try:
         run_container(
@@ -325,113 +325,23 @@ expect_blocked() {
   local label="$1"
   shift
   if "$@" >/dev/null 2>&1; then
-    echo "[smoke][error] github access unexpectedly succeeded: ${label}" >&2
+    echo "[smoke][error] proxy probe unexpectedly succeeded: ${label}" >&2
     exit 1
   fi
-  echo "[smoke] github probe blocked: ${label}"
+  echo "[smoke] proxy probe blocked: ${label}"
 }
 
-run_maven_canary() {
-  local workdir=/run/dependency-canaries/maven
-  mkdir -p "${workdir}/src/test/java/smoke"
-  cat > "${workdir}/pom.xml" <<'POM_EOF'
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>heimdall.smoke</groupId>
-  <artifactId>maven-canary</artifactId>
-  <version>1.0.0</version>
-  <properties>
-    <maven.compiler.release>8</maven.compiler.release>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <junit.version>5.10.2</junit.version>
-  </properties>
-  <dependencies>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>${junit.version}</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
-      </plugin>
-    </plugins>
-  </build>
-</project>
-POM_EOF
-  cat > "${workdir}/src/test/java/smoke/MavenCanaryTest.java" <<'JAVA_EOF'
-package smoke;
-
-import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-class MavenCanaryTest {
-    @Test
-    void resolvesDependencies() {
-        assertEquals("maven-canary", "maven-canary");
-    }
-}
-JAVA_EOF
-  if ! mvn -q -B -ntp -f "${workdir}/pom.xml" test; then
-    echo "[smoke][error] maven canary failed" >&2
-    exit 1
+resolve_python() {
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return 0
   fi
-  echo "[smoke] maven canary passed"
-}
-
-run_gradle_canary() {
-  local workdir=/run/dependency-canaries/gradle
-  mkdir -p "${workdir}/src/test/java/smoke"
-  cat > "${workdir}/settings.gradle" <<'SETTINGS_EOF'
-rootProject.name = 'gradle-canary'
-SETTINGS_EOF
-  cat > "${workdir}/build.gradle" <<'GRADLE_EOF'
-plugins {
-    id 'java'
-}
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
-}
-
-sourceCompatibility = JavaVersion.VERSION_1_8
-targetCompatibility = JavaVersion.VERSION_1_8
-
-test {
-    useJUnitPlatform()
-}
-GRADLE_EOF
-  cat > "${workdir}/src/test/java/smoke/GradleCanaryTest.java" <<'JAVA_EOF'
-package smoke;
-
-import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-class GradleCanaryTest {
-    @Test
-    void resolvesDependencies() {
-        assertEquals("gradle-canary", "gradle-canary");
-    }
-}
-JAVA_EOF
-  if ! gradle --no-daemon -q -p "${workdir}" test; then
-    echo "[smoke][error] gradle canary failed" >&2
-    exit 1
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return 0
   fi
-  echo "[smoke] gradle canary passed"
+  echo "[smoke][error] required tool unavailable: python3 or python" >&2
+  exit 1
 }
 
 echo "[smoke] service=${HEIMDALL_SMOKE_SERVICE:-unknown}"
@@ -501,12 +411,11 @@ if [[ -f "${workspace_dir}/last-message.txt" ]]; then
   cat "${workspace_dir}/last-message.txt"
 fi
 echo "[smoke] codex exec workspace probe passed"
-if [[ "${HEIMDALL_ANDVARI_GITHUB_BLOCK:-0}" == "1" ]]; then
-  echo "[smoke] Andvari GitHub blocking probes enabled"
+if [[ "${HEIMDALL_ANDVARI_PROXY_ENFORCED:-0}" == "1" ]]; then
+  echo "[smoke] Andvari proxy probes enabled"
   require_tool curl
   require_tool git
-  require_tool mvn
-  require_tool gradle
+  python_bin="$(resolve_python)"
   expect_blocked "https://github.com" curl -fsS --max-time 15 https://github.com
   expect_blocked "https://api.github.com" curl -fsS --max-time 15 https://api.github.com
   expect_blocked \
@@ -515,8 +424,12 @@ if [[ "${HEIMDALL_ANDVARI_GITHUB_BLOCK:-0}" == "1" ]]; then
   expect_blocked \
     "git ls-remote https://github.com/octocat/Hello-World.git" \
     git ls-remote https://github.com/octocat/Hello-World.git HEAD
-  run_maven_canary
-  run_gradle_canary
+  expect_blocked \
+    "curl --noproxy '*' https://github.com" \
+    curl --noproxy '*' -fsS --max-time 15 https://github.com
+  expect_blocked \
+    "python raw tcp github.com:443" \
+    "${python_bin}" -c "import socket; socket.create_connection(('github.com', 443), timeout=10).close()"
 fi
 echo "[smoke] provider smoke passed"
 """.strip()
@@ -544,12 +457,10 @@ def _classify_probe_failure(detail: str) -> str:
     if "permission denied" in lowered and "provider/bin" in lowered:
         return "provider-bin-unreadable-in-container"
     if (
-        "github access unexpectedly succeeded" in lowered
+        "proxy probe unexpectedly succeeded" in lowered
         or "required tool unavailable" in lowered
     ):
-        return "github-block-probe-failed"
-    if "maven canary failed" in lowered or "gradle canary failed" in lowered:
-        return "dependency-canary-failed"
+        return "andvari-proxy-probe-failed"
     if "command failed: codex exec" in lowered:
         return "codex-exec-failed"
     return "probe-command-failed"
@@ -586,16 +497,12 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
         for index, line in enumerate(lowered):
             if "command failed: codex exec" in line:
                 return lines[index]
-    if reason == "github-block-probe-failed":
+    if reason == "andvari-proxy-probe-failed":
         for index, line in enumerate(lowered):
             if (
-                "github access unexpectedly succeeded" in line
+                "proxy probe unexpectedly succeeded" in line
                 or "required tool unavailable" in line
             ):
-                return lines[index]
-    if reason == "dependency-canary-failed":
-        for index, line in enumerate(lowered):
-            if "maven canary failed" in line or "gradle canary failed" in line:
                 return lines[index]
     for line in reversed(lines):
         if line.startswith("[smoke][error]"):
@@ -640,18 +547,11 @@ def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
             "codex exec started inside the container, but the smoke task did not "
             "complete. Inspect the per-service log for the exact stderr/stdout."
         )
-    if reason == "github-block-probe-failed":
+    if reason == "andvari-proxy-probe-failed":
         return (
-            "The Andvari smoke did not prove the GitHub block. Confirm the Andvari "
+            "The Andvari smoke did not prove proxy enforcement. Confirm the Andvari "
             "container is on the restricted Docker network, the proxy env vars are "
-            "present, and the proxy denylist covers GitHub web, API, raw, and asset "
-            "hosts."
-        )
-    if reason == "dependency-canary-failed":
-        return (
-            "The GitHub block was enabled, but Maven or Gradle could not complete a "
-            "normal dependency-resolution canary. Check the proxy allowlist and the "
-            "toolchain available inside the Andvari container."
+            "present, and direct bypasses like curl --noproxy and raw TCP are blocked."
         )
     return None
 

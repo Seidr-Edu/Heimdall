@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlparse
 
+from heimdall.andvari_proxy import andvari_proxy_access_log_path
 from heimdall.models import (
     AndvariConfig,
     EitriConfig,
@@ -62,9 +63,9 @@ def runtime_snapshot(runtime: RuntimeConfig) -> dict[str, object]:
         "codex_home_dir": str(runtime.codex_home_dir),
         "sonar_host_url": runtime.sonar_host_url,
         "sonar_organization": runtime.sonar_organization,
-        "andvari_github_block_enabled": runtime.andvari_github_block_enabled,
         "andvari_internal_network_name": runtime.andvari_internal_network_name,
         "andvari_proxy_url_sha256": proxy_url_fingerprint,
+        "andvari_proxy_access_log_path": str(andvari_proxy_access_log_path()),
     }
 
 

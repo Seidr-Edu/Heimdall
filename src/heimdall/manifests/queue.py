@@ -148,7 +148,6 @@ def _parse_worker_config_mapping(
             "codex_home_dir",
             "pull_policy",
             "verbose",
-            "andvari_github_block_enabled",
             "andvari_internal_network_name",
             "andvari_proxy_url",
             "images",
@@ -201,13 +200,10 @@ def _parse_worker_config_mapping(
         lidskjalv=_parse_lidskjalv_config(
             pipeline_mod._optional_mapping(data, "lidskjalv", "root")
         ),
-        andvari_github_block_enabled=pipeline_mod._optional_bool(
-            data, "andvari_github_block_enabled", "root", False
-        ),
-        andvari_internal_network_name=pipeline_mod._optional_str(
+        andvari_internal_network_name=pipeline_mod._require_str(
             data, "andvari_internal_network_name", "root"
         ),
-        andvari_proxy_url=pipeline_mod._optional_str(data, "andvari_proxy_url", "root"),
+        andvari_proxy_url=pipeline_mod._require_str(data, "andvari_proxy_url", "root"),
     )
 
 

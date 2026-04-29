@@ -17,6 +17,12 @@ from heimdall.adapters import (
     topological_steps,
     upstream_report_dependencies,
 )
+from heimdall.andvari_proxy import (
+    ProxyAccessCapture,
+    begin_proxy_access_capture,
+    finish_proxy_access_capture,
+    proxy_access_artifact_path,
+)
 from heimdall.images import DockerError, run_container
 from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
@@ -339,6 +345,7 @@ def _execute_step(
     write_text(log_path, "")
     prepared = None
     fingerprint: str | None = None
+    proxy_capture = None
     result: StepResult | None = None
     try:
         prepared = prepare_step(step, context)
@@ -365,6 +372,7 @@ def _execute_step(
             )
         if prepared.report_path.is_file() or prepared.report_path.is_symlink():
             prepared.report_path.unlink(missing_ok=True)
+        proxy_capture = begin_proxy_access_capture(step)
         container_env = dict(prepared.env)
         container_env.update(env_for_step(step, context.runtime))
         run_container(
@@ -382,6 +390,7 @@ def _execute_step(
     except DockerError as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
+        proxy_capture_error = _finalize_proxy_capture(prepared, proxy_capture, log_path)
         if prepared is not None and prepared.report_path.is_file():
             result = _result_from_report_path(
                 step=step,
@@ -404,9 +413,12 @@ def _execute_step(
                 prepared=prepared,
                 fingerprint=fingerprint,
             )
+        if proxy_capture_error is not None:
+            _apply_proxy_capture_failure(result)
     except Exception as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
+        proxy_capture_error = _finalize_proxy_capture(prepared, proxy_capture, log_path)
         if prepared is not None and prepared.report_path.is_file():
             result = _result_from_report_path(
                 step=step,
@@ -429,9 +441,12 @@ def _execute_step(
                 prepared=prepared,
                 fingerprint=fingerprint,
             )
+        if proxy_capture_error is not None:
+            _apply_proxy_capture_failure(result)
     else:
         assert prepared is not None
         finished_at = timestamp_utc()
+        proxy_capture_error = _finalize_proxy_capture(prepared, proxy_capture, log_path)
         result = _result_from_report_path(
             step=step,
             prepared=prepared,
@@ -441,12 +456,37 @@ def _execute_step(
             started_at=started_at,
             finished_at=finished_at,
         )
+        if proxy_capture_error is not None:
+            _apply_proxy_capture_failure(result)
     finally:
         if prepared is not None:
             _cleanup_executed_step_runtime(prepared, log_path)
 
     assert result is not None
     return result
+
+
+def _finalize_proxy_capture(
+    prepared: StepPrepared | None,
+    proxy_capture: ProxyAccessCapture | None,
+    log_path: Path,
+) -> RuntimeError | None:
+    if prepared is None or proxy_capture is None:
+        return None
+    try:
+        finish_proxy_access_capture(
+            proxy_capture,
+            proxy_access_artifact_path(prepared.run_dir),
+        )
+    except RuntimeError as exc:
+        _append_step_exception_log(log_path, exc)
+        return exc
+    return None
+
+
+def _apply_proxy_capture_failure(result: StepResult) -> None:
+    result.status = "error"
+    result.reason = "proxy-access-log-capture-failed"
 
 
 def _fingerprint_for_prepared_step(

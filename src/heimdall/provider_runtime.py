@@ -8,37 +8,23 @@ from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
+from heimdall.andvari_proxy import uses_andvari_proxy_runtime
 from heimdall.models import RuntimeConfig
 from heimdall.utils import stage_readable_paths, stage_readable_tree, write_text
 
 _GITHUB_PLUGIN_NAME = "github@openai-curated"
 _NO_PROXY_VALUE = "127.0.0.1,localhost"
 _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-_ANDVARI_SERVICE_NAMES = {"andvari", "andvari-v2", "andvari-v3"}
 _MINIMAL_ANDVARI_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
 
 
-def andvari_github_block_enabled(runtime: RuntimeConfig) -> bool:
-    return runtime.andvari_github_block_enabled
-
-
-def should_block_github_for_service(service_name: str, runtime: RuntimeConfig) -> bool:
-    return (
-        andvari_github_block_enabled(runtime) and service_name in _ANDVARI_SERVICE_NAMES
-    )
-
-
 def andvari_network_name(runtime: RuntimeConfig) -> str | None:
-    if not andvari_github_block_enabled(runtime):
-        return None
     return runtime.andvari_internal_network_name
 
 
 def andvari_proxy_env(runtime: RuntimeConfig) -> dict[str, str]:
-    if not andvari_github_block_enabled(runtime):
-        return {}
     proxy_url = runtime.andvari_proxy_url
-    if proxy_url is None:
+    if not proxy_url:
         return {}
     return {
         "HTTP_PROXY": proxy_url,
@@ -51,13 +37,13 @@ def andvari_proxy_env(runtime: RuntimeConfig) -> dict[str, str]:
 
 
 def docker_network_for_step(step: str, runtime: RuntimeConfig) -> str | None:
-    if not should_block_github_for_service(step, runtime):
+    if not uses_andvari_proxy_runtime(step):
         return None
     return andvari_network_name(runtime)
 
 
 def env_for_step(step: str, runtime: RuntimeConfig) -> dict[str, str]:
-    if not should_block_github_for_service(step, runtime):
+    if not uses_andvari_proxy_runtime(step):
         return {}
     return andvari_proxy_env(runtime)
 
@@ -68,13 +54,13 @@ def stage_provider_seed(
     destination_seed: Path,
     runtime: RuntimeConfig,
 ) -> None:
-    if service_name in _ANDVARI_SERVICE_NAMES:
+    if uses_andvari_proxy_runtime(service_name):
         stage_readable_paths(
             source_codex_home,
             destination_seed,
             _MINIMAL_ANDVARI_SEED_RELPATHS,
         )
-        sanitize_andvari_codex_seed(service_name, destination_seed, runtime)
+        sanitize_andvari_codex_seed(service_name, destination_seed)
         return
     stage_readable_tree(source_codex_home, destination_seed)
 
@@ -82,9 +68,8 @@ def stage_provider_seed(
 def sanitize_andvari_codex_seed(
     service_name: str,
     staged_codex_home: Path,
-    runtime: RuntimeConfig,
 ) -> None:
-    if not should_block_github_for_service(service_name, runtime):
+    if not uses_andvari_proxy_runtime(service_name):
         return
     config_path = staged_codex_home / "config.toml"
     payload = _load_toml_document(config_path)
@@ -104,7 +89,7 @@ def sanitize_andvari_codex_seed(
 
 
 def proxy_url_fingerprint(runtime: RuntimeConfig) -> str | None:
-    if runtime.andvari_proxy_url is None:
+    if not runtime.andvari_proxy_url:
         return None
     return hashlib.sha256(runtime.andvari_proxy_url.encode("utf-8")).hexdigest()
 

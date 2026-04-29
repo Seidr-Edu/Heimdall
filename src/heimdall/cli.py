@@ -11,6 +11,7 @@ from heimdall.execution import (
     build_runtime,
     resume_run_root,
     run_pipeline_manifest_path,
+    validate_andvari_proxy_runtime,
 )
 from heimdall.execution import (
     check_codex_login as _check_codex_login,
@@ -186,20 +187,14 @@ def _add_runtime_args(parser: argparse.ArgumentParser) -> None:
         help="Print preflight and stream per-step container output to the terminal",
     )
     parser.add_argument(
-        "--andvari-github-block-enabled",
-        action="store_true",
-        help=(
-            "Route Andvari through the configured proxy-backed Docker network and "
-            "rewrite its staged Codex config to disable GitHub tools."
-        ),
-    )
-    parser.add_argument(
         "--andvari-internal-network-name",
-        help="Docker network name used only for Andvari when GitHub blocking is enabled",
+        required=True,
+        help="Docker network name used for Andvari proxy enforcement",
     )
     parser.add_argument(
         "--andvari-proxy-url",
-        help="Proxy URL injected into Andvari when GitHub blocking is enabled",
+        required=True,
+        help="Proxy URL injected into Andvari containers",
     )
 
 
@@ -211,7 +206,6 @@ def _run_command(args: argparse.Namespace) -> int:
         args.codex_home_dir,
         args.pull_policy,
         args.verbose,
-        andvari_github_block_enabled=args.andvari_github_block_enabled,
         andvari_internal_network_name=args.andvari_internal_network_name,
         andvari_proxy_url=args.andvari_proxy_url,
     )
@@ -227,7 +221,6 @@ def _resume_command(args: argparse.Namespace) -> int:
         args.codex_home_dir,
         args.pull_policy,
         args.verbose,
-        andvari_github_block_enabled=args.andvari_github_block_enabled,
         andvari_internal_network_name=args.andvari_internal_network_name,
         andvari_proxy_url=args.andvari_proxy_url,
     )
@@ -249,7 +242,6 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         args.codex_home_dir,
         args.pull_policy,
         args.verbose,
-        andvari_github_block_enabled=args.andvari_github_block_enabled,
         andvari_internal_network_name=args.andvari_internal_network_name,
         andvari_proxy_url=args.andvari_proxy_url,
     )
@@ -354,7 +346,7 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         )
     if not runtime.codex_home_dir.is_dir():
         raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
-    _validate_andvari_github_block_runtime(runtime)
+    validate_andvari_proxy_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
         print("[heimdall] docker daemon reachable", file=sys.stderr, flush=True)
@@ -368,21 +360,6 @@ def _emit_completed_process(completed: subprocess.CompletedProcess[str]) -> None
         print(completed.stdout, end="")
     if completed.stderr:
         print(completed.stderr, end="", file=sys.stderr)
-
-
-def _validate_andvari_github_block_runtime(runtime: RuntimeConfig) -> None:
-    if not runtime.andvari_github_block_enabled:
-        return
-    if not runtime.andvari_internal_network_name:
-        raise PreflightError(
-            "Andvari GitHub blocking is enabled, but --andvari-internal-network-name "
-            "was not provided."
-        )
-    if not runtime.andvari_proxy_url:
-        raise PreflightError(
-            "Andvari GitHub blocking is enabled, but --andvari-proxy-url was not "
-            "provided."
-        )
 
 
 def _smoke_exit_code(summary_path: Path) -> int:

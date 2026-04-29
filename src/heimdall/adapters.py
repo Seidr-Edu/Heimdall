@@ -526,6 +526,7 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
         suffix = _artifact_key_suffix(step)
         generated_repo = run_dir / "artifacts" / "generated-repo"
         logs_dir = run_dir / "artifacts" / "andvari" / "logs"
+        proxy_access_log = logs_dir / "proxy_access.jsonl"
         report_dir = run_dir / "artifacts" / "andvari" / "report"
         if generated_repo.exists():
             records[f"generated_repo{suffix}"] = ArtifactRecord(
@@ -534,6 +535,10 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
         if logs_dir.exists():
             records[f"andvari_logs{suffix}"] = ArtifactRecord(
                 owner=step, path=str(logs_dir)
+            )
+        if proxy_access_log.exists():
+            records[f"andvari_proxy_access_log{suffix}"] = ArtifactRecord(
+                owner=step, path=str(proxy_access_log)
             )
         if report_dir.exists():
             records[f"andvari_report_dir{suffix}"] = ArtifactRecord(

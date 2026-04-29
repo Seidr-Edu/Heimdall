@@ -72,7 +72,7 @@ class QueueIntegrationTest(unittest.TestCase):
         self.assertTrue((self.queue_root / "jobs" / job_id / "job.yaml").is_file())
         self.assertFalse((self.queue_root / "jobs" / job_id / "pipeline.yaml").exists())
 
-    def test_worker_config_supports_andvari_github_block_settings(self) -> None:
+    def test_worker_config_requires_andvari_proxy_settings(self) -> None:
         write_file(
             self.worker_config_path,
             build_worker_config(
@@ -80,14 +80,12 @@ class QueueIntegrationTest(unittest.TestCase):
                 runs_root=self.runs_root,
                 codex_bin_dir=self.bin_dir,
                 codex_home_dir=self.home_dir,
-                andvari_github_block_enabled=True,
                 andvari_internal_network_name="andvari-egress",
                 andvari_proxy_url="http://proxy.internal:3128",
             ),
         )
 
         worker_config = load_worker_config(self.worker_config_path)
-        self.assertTrue(worker_config.andvari_github_block_enabled)
         self.assertEqual(worker_config.andvari_internal_network_name, "andvari-egress")
         self.assertEqual(worker_config.andvari_proxy_url, "http://proxy.internal:3128")
 

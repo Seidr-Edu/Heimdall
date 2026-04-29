@@ -13,6 +13,7 @@ from tests.helpers import (
     fake_env,
     install_fake_tools,
     load_fake_state,
+    with_default_andvari_runtime_args,
     write_file,
 )
 
@@ -256,6 +257,19 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 / "README.md"
             ).is_file()
         )
+        for service_dir in ("andvari", "andvari-v2", "andvari-v3"):
+            self.assertTrue(
+                (
+                    run_root
+                    / "services"
+                    / service_dir
+                    / "run"
+                    / "artifacts"
+                    / "andvari"
+                    / "logs"
+                    / "proxy_access.jsonl"
+                ).is_file()
+            )
         self.assertTrue(
             (
                 run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"
@@ -289,6 +303,9 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 "andvari_logs",
                 "andvari_logs_v2",
                 "andvari_logs_v3",
+                "andvari_proxy_access_log",
+                "andvari_proxy_access_log_v2",
+                "andvari_proxy_access_log_v3",
                 "andvari_report_dir",
                 "andvari_report_dir_v2",
                 "andvari_report_dir_v3",
@@ -430,7 +447,12 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = fake_env(self.bin_dir, self.state_path, extra=extra_env)
         return subprocess.run(
-            [sys.executable, "-m", "heimdall.cli", *args],
+            [
+                sys.executable,
+                "-m",
+                "heimdall.cli",
+                *with_default_andvari_runtime_args(args),
+            ],
             check=False,
             capture_output=True,
             text=True,
