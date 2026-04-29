@@ -72,6 +72,29 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         self.assertEqual(summary["services"]["kvasir"]["status"], "passed")
         self.assertTrue((self.output_dir / "logs" / "andvari.log").is_file())
         self.assertTrue((self.output_dir / "logs" / "kvasir.log").is_file())
+        proxy_access_log = (
+            self.output_dir
+            / "services"
+            / "andvari"
+            / "run"
+            / "artifacts"
+            / "andvari"
+            / "logs"
+            / "proxy_access.jsonl"
+        )
+        self.assertTrue(proxy_access_log.is_file())
+        self.assertFalse(
+            (
+                self.output_dir
+                / "services"
+                / "kvasir"
+                / "run"
+                / "artifacts"
+                / "andvari"
+                / "logs"
+                / "proxy_access.jsonl"
+            ).exists()
+        )
         self.assertTrue(
             (
                 self.output_dir
@@ -94,6 +117,16 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
             ).read_text(encoding="utf-8"),
             "heimdall-provider-smoke\n",
         )
+        proxy_log_text = proxy_access_log.read_text(encoding="utf-8")
+        self.assertIn('"decision": "allow"', proxy_log_text)
+        self.assertIn('"target": "example.com:443"', proxy_log_text)
+        self.assertIn('"decision": "deny"', proxy_log_text)
+        self.assertIn('"target": "github.com:443"', proxy_log_text)
+        self.assertEqual(
+            Path(summary["services"]["andvari"]["proxy_access_log_path"]).resolve(),
+            proxy_access_log.resolve(),
+        )
+        self.assertIsNone(summary["services"]["kvasir"]["proxy_access_log_path"])
 
         runs = load_fake_state(self.state_path)["runs"]
         run_by_step = {entry["step"]: entry for entry in runs}
@@ -192,6 +225,7 @@ enabled = true
             encoding="utf-8"
         )
         self.assertIn("Andvari proxy probes enabled", log_text)
+        self.assertIn("proxy probe allowed: https://example.com", log_text)
         self.assertIn("proxy probe blocked: https://github.com", log_text)
         self.assertIn(
             "proxy probe blocked: curl --noproxy '*' https://github.com", log_text
@@ -232,6 +266,20 @@ enabled = true
         self.assertEqual(
             run_by_step["smoke-andvari"]["env"]["HEIMDALL_ANDVARI_PROXY_ENFORCED"], "1"
         )
+        proxy_access_log = (
+            self.output_dir
+            / "services"
+            / "andvari"
+            / "run"
+            / "artifacts"
+            / "andvari"
+            / "logs"
+            / "proxy_access.jsonl"
+        )
+        self.assertTrue(proxy_access_log.is_file())
+        proxy_log_text = proxy_access_log.read_text(encoding="utf-8")
+        self.assertIn('"target": "example.com:443"', proxy_log_text)
+        self.assertIn('"target": "api.github.com:443"', proxy_log_text)
         self.assertIsNone(run_by_step["smoke-kvasir"]["network"])
         self.assertEqual(run_by_step["smoke-kvasir"]["cap_drop"], ["ALL"])
         self.assertEqual(

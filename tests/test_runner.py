@@ -494,9 +494,7 @@ enabled = true
         for step in ("andvari", "andvari-v2", "andvari-v3"):
             self.assertEqual(run_by_step[step]["network"], "andvari-egress")
             self.assertEqual(run_by_step[step]["cap_drop"], ["ALL"])
-            self.assertEqual(
-                run_by_step[step]["security_opts"], ["no-new-privileges"]
-            )
+            self.assertEqual(run_by_step[step]["security_opts"], ["no-new-privileges"])
             self.assertEqual(
                 run_by_step[step]["env"]["HTTP_PROXY"], "http://proxy.internal:3128"
             )
@@ -546,9 +544,7 @@ enabled = true
         for step in ("brokk", "eitri", "kvasir", "kvasir-v2", "kvasir-v3"):
             self.assertIsNone(run_by_step[step]["network"])
             self.assertEqual(run_by_step[step]["cap_drop"], ["ALL"])
-            self.assertEqual(
-                run_by_step[step]["security_opts"], ["no-new-privileges"]
-            )
+            self.assertEqual(run_by_step[step]["security_opts"], ["no-new-privileges"])
             self.assertNotIn("HTTP_PROXY", run_by_step[step]["env"])
             self.assertNotIn("HTTPS_PROXY", run_by_step[step]["env"])
             self.assertNotIn("NO_PROXY", run_by_step[step]["env"])

@@ -421,7 +421,21 @@ def _run_provider_smoke(
     print("SMOKE_OK")
     print("[smoke] codex exec workspace probe passed")
     if proxy_enforced:
+        _append_proxy_access_log(
+            service,
+            [
+                {"decision": "allow", "target": "example.com:443"},
+                {"decision": "deny", "target": "github.com:443"},
+                {"decision": "deny", "target": "api.github.com:443"},
+                {
+                    "decision": "deny",
+                    "target": "raw.githubusercontent.com:443",
+                },
+                {"decision": "deny", "target": "github.com:443", "tool": "git"},
+            ],
+        )
         print("[smoke] Andvari proxy probes enabled")
+        print("[smoke] proxy probe allowed: https://example.com")
         print("[smoke] proxy probe blocked: https://github.com")
         print("[smoke] proxy probe blocked: https://api.github.com")
         print(

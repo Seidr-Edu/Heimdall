@@ -173,7 +173,9 @@ def _run_service_probe(
     probe_input_dir = service_root / "input" / "probe-input"
     runtime_codex_home = run_dir / "provider-state" / "codex-home"
     proxy_log_artifact_path = (
-        proxy_access_artifact_path(run_dir) if uses_andvari_proxy_runtime(service) else None
+        proxy_access_artifact_path(run_dir)
+        if uses_andvari_proxy_runtime(service)
+        else None
     )
     log_path = logs_dir / f"{service}.log"
 
@@ -195,7 +197,9 @@ def _run_service_probe(
         "probe_input_dir": str(probe_input_dir),
         "runtime_codex_home": str(runtime_codex_home),
         "proxy_access_log_path": (
-            str(proxy_log_artifact_path) if proxy_log_artifact_path is not None else None
+            str(proxy_log_artifact_path)
+            if proxy_log_artifact_path is not None
+            else None
         ),
     }
 

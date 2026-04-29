@@ -275,6 +275,7 @@ write a result file into the mounted `/run/workspace`. It writes:
 - `summary.md`
 - `logs/andvari.log`
 - `logs/kvasir.log`
+- `services/andvari/run/artifacts/andvari/logs/proxy_access.jsonl`
 
 The summary includes the host Codex binary format and a classified failure
 reason such as `codex-binary-incompatible-with-container`,
@@ -291,6 +292,8 @@ Andvari probe container. Heimdall also:
 - attaches only the Andvari probe container to the configured Docker network
 - injects only the Andvari probe container with `HTTP_PROXY`, `HTTPS_PROXY`,
   and `NO_PROXY`
+- verifies an allowed proxied `curl https://example.com` and captures it in the
+  Andvari proxy log artifact
 - verifies `curl` to `github.com`, `api.github.com`, and
   `raw.githubusercontent.com` fails
 - verifies `git ls-remote https://github.com/...` fails
