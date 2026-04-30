@@ -60,7 +60,8 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
                 str(self.bin_dir),
                 "--codex-home-dir",
                 str(self.home_dir),
-            ]
+            ],
+            extra_env={"HEIMDALL_KEEP_SMOKE_OUTPUT": "1"},
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
@@ -213,7 +214,8 @@ enabled = true
                 str(self.bin_dir),
                 "--codex-home-dir",
                 str(self.home_dir),
-            ]
+            ],
+            extra_env={"HEIMDALL_KEEP_SMOKE_OUTPUT": "1"},
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
@@ -300,6 +302,26 @@ enabled = true
             "web_search",
             kvasir_config,
         )
+
+    def test_smoke_provider_clears_existing_output_dir_before_run(self) -> None:
+        stale_path = self.output_dir / "stale" / "old.txt"
+        write_file(stale_path, "stale\n")
+
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertFalse(stale_path.exists())
+        self.assertFalse(self.output_dir.exists())
 
     def test_smoke_provider_classifies_exec_format_failures(self) -> None:
         completed = self._run_cli(
@@ -471,7 +493,8 @@ enabled = true
                 str(self.bin_dir),
                 "--codex-home-dir",
                 str(self.home_dir),
-            ]
+            ],
+            extra_env={"HEIMDALL_KEEP_SMOKE_OUTPUT": "1"},
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
