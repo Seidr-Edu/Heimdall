@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import platform
-import shutil
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -34,7 +32,6 @@ from heimdall.utils import (
 SMOKE_SERVICES = ("andvari", "kvasir")
 SMOKE_INPUT_FILENAME = "smoke.txt"
 SMOKE_INPUT_CONTENT = "heimdall-provider-smoke\n"
-_KEEP_SMOKE_OUTPUT_ENV = "HEIMDALL_KEEP_SMOKE_OUTPUT"
 
 
 class HostInfo(TypedDict):
@@ -81,27 +78,6 @@ def default_provider_smoke_output_dir(base_dir: Path | None = None) -> Path:
         else (Path.cwd() / ".heimdall-smoke").resolve()
     )
     return root / f"{compact_run_id()}__provider-smoke"
-
-
-def should_keep_provider_smoke_output() -> bool:
-    raw = os.environ.get(_KEEP_SMOKE_OUTPUT_ENV)
-    if raw is None:
-        return False
-    return raw.strip().lower() not in {"", "0", "false", "no"}
-
-
-def cleanup_provider_smoke_output_dir(output_dir: Path) -> None:
-    if not output_dir.exists():
-        return
-    try:
-        if output_dir.is_symlink() or output_dir.is_file():
-            output_dir.unlink()
-        else:
-            shutil.rmtree(output_dir)
-    except OSError as exc:
-        raise RuntimeError(
-            f"Failed to remove smoke output dir {output_dir}: {exc}"
-        ) from exc
 
 
 def run_provider_smoke(

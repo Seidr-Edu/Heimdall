@@ -282,11 +282,6 @@ reason such as `codex-binary-incompatible-with-container`,
 `codex-auth-unusable-in-container`, or
 `codex-exec-workspace-access-failed`.
 
-If `--output-dir` already exists, Heimdall clears it before starting the smoke
-run instead of failing preflight. If the smoke passes, Heimdall deletes that
-output directory by default. On failure, it leaves the smoke logs, summaries,
-and proxy artifact behind for inspection.
-
 For `smoke-provider`, Heimdall always applies the Andvari proxy path to the
 Andvari probe container. Heimdall also:
 

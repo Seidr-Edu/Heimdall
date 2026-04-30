@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,12 +10,7 @@ from heimdall.images import ensure_docker_available, resolve_images
 from heimdall.manifests.pipeline import load_pipeline_manifest
 from heimdall.models import PipelineConfig, PullPolicy, RuntimeConfig
 from heimdall.runner import PreflightError, run_pipeline
-from heimdall.smoke import (
-    SMOKE_SERVICES,
-    cleanup_provider_smoke_output_dir,
-    run_provider_smoke,
-    should_keep_provider_smoke_output,
-)
+from heimdall.smoke import SMOKE_SERVICES, run_provider_smoke
 from heimdall.utils import ensure_directory
 
 
@@ -108,7 +101,8 @@ def preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         raise PreflightError(
             f"Smoke output parent is not writable: {output_dir.parent}"
         )
-    _clear_provider_smoke_output_dir(output_dir)
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise PreflightError(f"Smoke output dir is not empty: {output_dir}")
     if not runtime.codex_bin_dir.is_dir():
         raise PreflightError(f"Codex bin dir does not exist: {runtime.codex_bin_dir}")
     if not runtime.codex_host_bin_dir.is_dir():
@@ -124,20 +118,6 @@ def preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
     check_codex_login(runtime)
     if runtime.verbose:
         print("[heimdall] codex login status ok", file=sys.stderr, flush=True)
-
-
-def _clear_provider_smoke_output_dir(output_dir: Path) -> None:
-    if not output_dir.exists():
-        return
-    try:
-        if output_dir.is_symlink() or output_dir.is_file():
-            output_dir.unlink()
-        else:
-            shutil.rmtree(output_dir)
-    except OSError as exc:
-        raise PreflightError(
-            f"Failed to clear smoke output dir {output_dir}: {exc}"
-        ) from exc
 
 
 def check_codex_login(runtime: RuntimeConfig) -> None:
@@ -239,22 +219,10 @@ def run_provider_smoke_manifest_path(
         output_dir=output_dir,
         services=services,
     )
-    summary_path = output_dir / "summary.json"
-    payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    exit_code = 0 if payload.get("status") == "passed" else 1
     if runtime.verbose:
-        if exit_code == 0 and not should_keep_provider_smoke_output():
-            print(
-                f"[heimdall] provider smoke passed; cleaned output dir {output_dir}",
-                file=sys.stderr,
-                flush=True,
-            )
-        else:
-            print(
-                f"[heimdall] provider smoke summary: {summary_path}",
-                file=sys.stderr,
-                flush=True,
-            )
-    if exit_code == 0 and not should_keep_provider_smoke_output():
-        cleanup_provider_smoke_output_dir(output_dir)
-    return exit_code
+        print(
+            f"[heimdall] provider smoke summary: {output_dir / 'summary.json'}",
+            file=sys.stderr,
+            flush=True,
+        )
+    return 0

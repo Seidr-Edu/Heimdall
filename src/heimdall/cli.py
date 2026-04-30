@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,10 +36,8 @@ from heimdall.queueing import (
 from heimdall.runner import PreflightError
 from heimdall.smoke import (
     SMOKE_SERVICES,
-    cleanup_provider_smoke_output_dir,
     default_provider_smoke_output_dir,
     run_provider_smoke,
-    should_keep_provider_smoke_output,
 )
 from heimdall.sonar_follow_up import sonar_worker_loop
 
@@ -261,16 +258,7 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         output_dir=output_dir,
         services=tuple(args.service or SMOKE_SERVICES),
     )
-    exit_code = _smoke_exit_code(output_dir / "summary.json")
-    if exit_code == 0 and not should_keep_provider_smoke_output():
-        cleanup_provider_smoke_output_dir(output_dir)
-        if runtime.verbose:
-            print(
-                f"[heimdall] provider smoke passed; cleaned output dir {output_dir}",
-                file=sys.stderr,
-                flush=True,
-            )
-    return exit_code
+    return _smoke_exit_code(output_dir / "summary.json")
 
 
 def _enqueue_command(args: argparse.Namespace) -> int:
@@ -348,7 +336,8 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         raise PreflightError(
             f"Smoke output parent is not writable: {output_dir.parent}"
         )
-    _clear_provider_smoke_output_dir(output_dir)
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise PreflightError(f"Smoke output dir is not empty: {output_dir}")
     if not runtime.codex_bin_dir.is_dir():
         raise PreflightError(f"Codex bin dir does not exist: {runtime.codex_bin_dir}")
     if not runtime.codex_host_bin_dir.is_dir():
@@ -364,20 +353,6 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
     _check_codex_login(runtime)
     if runtime.verbose:
         print("[heimdall] codex login status ok", file=sys.stderr, flush=True)
-
-
-def _clear_provider_smoke_output_dir(output_dir: Path) -> None:
-    if not output_dir.exists():
-        return
-    try:
-        if output_dir.is_symlink() or output_dir.is_file():
-            output_dir.unlink()
-        else:
-            shutil.rmtree(output_dir)
-    except OSError as exc:
-        raise PreflightError(
-            f"Failed to clear smoke output dir {output_dir}: {exc}"
-        ) from exc
 
 
 def _emit_completed_process(completed: subprocess.CompletedProcess[str]) -> None:
