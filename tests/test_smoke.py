@@ -431,6 +431,39 @@ enabled = true
             summary["services"]["andvari"]["detail"],
         )
 
+    def test_smoke_provider_classifies_post_run_proxy_capture_failures(self) -> None:
+        fake_env_map = fake_env(self.bin_dir, self.state_path)
+        Path(fake_env_map["HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH"]).write_text(
+            '{"step":"before"}\n',
+            encoding="utf-8",
+        )
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_SMOKE_ANDVARI_MODE": "proxy-log-truncated"},
+        )
+        self.assertEqual(completed.returncode, 1)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            summary["services"]["andvari"]["reason"],
+            "proxy-access-log-capture-failed",
+        )
+        self.assertIn(
+            "was truncated during step execution",
+            summary["services"]["andvari"]["detail"],
+        )
+
     def test_smoke_provider_fails_when_codex_exec_skips_result_artifact(self) -> None:
         completed = self._run_cli(
             [

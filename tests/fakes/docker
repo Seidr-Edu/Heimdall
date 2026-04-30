@@ -446,6 +446,8 @@ def _run_provider_smoke(
         )
         print("[smoke] proxy probe blocked: curl --noproxy '*' https://github.com")
         print("[smoke] proxy probe blocked: python raw tcp github.com:443")
+        if mode == "proxy-log-truncated":
+            _truncate_proxy_access_log()
     print("[smoke] provider smoke passed")
     return 0
 

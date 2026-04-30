@@ -337,12 +337,15 @@ def _run_service_probe(
         log_path,
     )
     if proxy_capture_error is not None:
+        reason = getattr(
+            proxy_capture_error, "reason", "proxy-access-log-capture-failed"
+        )
         return {
             **base_result,
             "resolved_image_id": resolved_image_id,
-            "reason": "proxy-access-log-capture-failed",
+            "reason": reason,
             "detail": str(proxy_capture_error),
-            "hint": _proxy_capture_failure_hint(),
+            "hint": _proxy_failure_hint(reason),
         }
     if failure_result is not None:
         return failure_result
