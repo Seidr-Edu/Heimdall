@@ -373,6 +373,59 @@ enabled = true
             summary["services"]["andvari"]["hint"],
         )
 
+    def test_smoke_provider_classifies_auth_failures(self) -> None:
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_SMOKE_ANDVARI_MODE": "login-fail"},
+        )
+        self.assertEqual(completed.returncode, 1)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            summary["services"]["andvari"]["reason"],
+            "codex-auth-unusable-in-container",
+        )
+        self.assertIn("Not logged in", summary["services"]["andvari"]["detail"])
+
+    def test_smoke_provider_classifies_proxy_probe_failures(self) -> None:
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_SMOKE_ANDVARI_MODE": "github-probe-fail"},
+        )
+        self.assertEqual(completed.returncode, 1)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            summary["services"]["andvari"]["reason"],
+            "andvari-proxy-probe-failed",
+        )
+        self.assertIn(
+            "proxy probe unexpectedly succeeded: https://github.com",
+            summary["services"]["andvari"]["detail"],
+        )
+
     def test_smoke_provider_fails_when_codex_exec_skips_result_artifact(self) -> None:
         completed = self._run_cli(
             [

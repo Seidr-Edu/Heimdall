@@ -488,7 +488,10 @@ def _classify_probe_failure(detail: str) -> str:
         return "codex-binary-incompatible-with-container"
     if "command failed: command -v codex" in lowered or "codex: not found" in lowered:
         return "codex-cli-unavailable-in-container"
-    if "login status" in lowered or "not logged in" in lowered:
+    if (
+        "command failed: codex login status" in lowered
+        or "not logged in" in lowered
+    ):
         return "codex-auth-unusable-in-container"
     if (
         "codex exec did not create /run/workspace/smoke-result.txt" in lowered
@@ -527,7 +530,10 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
                 return lines[index]
     if reason == "codex-auth-unusable-in-container":
         for index, line in enumerate(lowered):
-            if "not logged in" in line or "login status" in line:
+            if (
+                "not logged in" in line
+                or "command failed: codex login status" in line
+            ):
                 return lines[index]
     if reason == "codex-exec-workspace-access-failed":
         for index, line in enumerate(lowered):
