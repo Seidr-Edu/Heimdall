@@ -527,14 +527,7 @@ enabled = true
             self.assertEqual(config["web_search"], "disabled")
             self.assertFalse(config["plugins"]["github@openai-curated"]["enabled"])
             proxy_access_log = (
-                run_root
-                / "services"
-                / step
-                / "run"
-                / "artifacts"
-                / "andvari"
-                / "logs"
-                / "proxy_access.jsonl"
+                run_root / "pipeline" / "artifacts" / "proxy_access" / f"{step}.jsonl"
             )
             self.assertTrue(proxy_access_log.is_file())
             log_text = proxy_access_log.read_text(encoding="utf-8")
@@ -554,7 +547,7 @@ enabled = true
         kvasir_config = tomllib.loads(run_by_step["kvasir"]["provider_seed_config"])
         self.assertTrue(kvasir_config["plugins"]["github@openai-curated"]["enabled"])
 
-    def test_missing_proxy_access_log_fails_preflight(self) -> None:
+    def test_missing_proxy_access_log_fails_andvari_step_before_launch(self) -> None:
         missing_log = self.root / "missing" / "andvari-access.jsonl"
         completed = self._run_cli(
             [
@@ -569,8 +562,48 @@ enabled = true
             ],
             extra_env={"HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH": str(missing_log)},
         )
-        self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("Andvari proxy access log unavailable", completed.stderr)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["andvari"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["andvari"]["reason"], "proxy-runtime-unavailable"
+        )
+        for step in (
+            "eitri-generated",
+            "mimir",
+            "kvasir",
+            "lidskjalv-generated",
+            "eitri-generated-v2",
+            "mimir-v2",
+            "kvasir-v2",
+            "lidskjalv-generated-v2",
+            "eitri-generated-v3",
+            "mimir-v3",
+            "kvasir-v3",
+            "lidskjalv-generated-v3",
+        ):
+            self.assertEqual(report["steps"][step]["status"], "blocked")
+        self.assertEqual(report["steps"]["andvari-v2"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["andvari-v2"]["reason"], "proxy-runtime-unavailable"
+        )
+        self.assertEqual(report["steps"]["andvari-v3"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["andvari-v3"]["reason"], "proxy-runtime-unavailable"
+        )
+
+        runs = load_fake_state(self.state_path)["runs"]
+        run_steps = {entry["step"] for entry in runs}
+        self.assertNotIn("andvari", run_steps)
+        self.assertNotIn("andvari-v2", run_steps)
+        self.assertNotIn("andvari-v3", run_steps)
 
     def test_andvari_proxy_runtime_creates_minimal_config_when_missing(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
@@ -630,6 +663,65 @@ enabled = true
             report["steps"]["andvari"]["reason"],
             "proxy-access-log-capture-failed",
         )
+
+    def test_resume_reuses_passed_andvari_steps_without_proxy_revalidation(
+        self,
+    ) -> None:
+        first = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ]
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        runs_before_resume = len(load_fake_state(self.state_path)["runs"])
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        env = fake_env(self.bin_dir, self.state_path)
+        proxy_access_log = Path(env["HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH"])
+        proxy_access_log.unlink()
+
+        resumed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "heimdall.cli",
+                *with_default_andvari_runtime_args(
+                    [
+                        "resume",
+                        str(run_root),
+                        "--codex-bin-dir",
+                        str(self.bin_dir),
+                        "--codex-home-dir",
+                        str(self.home_dir),
+                    ]
+                ),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(self.root),
+            env=env,
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["steps"]["andvari"]["status"], "skipped")
+        self.assertEqual(report["steps"]["andvari-v2"]["status"], "skipped")
+        self.assertEqual(report["steps"]["andvari-v3"]["status"], "skipped")
+        runs_after_resume = len(load_fake_state(self.state_path)["runs"])
+        self.assertEqual(runs_after_resume, runs_before_resume)
 
     def test_codex_bin_dir_is_staged_into_executable_provider_bin_mounts(self) -> None:
         real_provider_bin = self.root / "real-provider-bin"

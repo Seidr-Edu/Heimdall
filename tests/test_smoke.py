@@ -73,27 +73,11 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         self.assertTrue((self.output_dir / "logs" / "andvari.log").is_file())
         self.assertTrue((self.output_dir / "logs" / "kvasir.log").is_file())
         proxy_access_log = (
-            self.output_dir
-            / "services"
-            / "andvari"
-            / "run"
-            / "artifacts"
-            / "andvari"
-            / "logs"
-            / "proxy_access.jsonl"
+            self.output_dir / "artifacts" / "proxy_access" / "andvari.jsonl"
         )
         self.assertTrue(proxy_access_log.is_file())
         self.assertFalse(
-            (
-                self.output_dir
-                / "services"
-                / "kvasir"
-                / "run"
-                / "artifacts"
-                / "andvari"
-                / "logs"
-                / "proxy_access.jsonl"
-            ).exists()
+            (self.output_dir / "artifacts" / "proxy_access" / "kvasir.jsonl").exists()
         )
         self.assertTrue(
             (
@@ -267,14 +251,7 @@ enabled = true
             run_by_step["smoke-andvari"]["env"]["HEIMDALL_ANDVARI_PROXY_ENFORCED"], "1"
         )
         proxy_access_log = (
-            self.output_dir
-            / "services"
-            / "andvari"
-            / "run"
-            / "artifacts"
-            / "andvari"
-            / "logs"
-            / "proxy_access.jsonl"
+            self.output_dir / "artifacts" / "proxy_access" / "andvari.jsonl"
         )
         self.assertTrue(proxy_access_log.is_file())
         proxy_log_text = proxy_access_log.read_text(encoding="utf-8")
@@ -423,6 +400,34 @@ enabled = true
         )
         self.assertIn(
             "proxy probe unexpectedly succeeded: https://github.com",
+            summary["services"]["andvari"]["detail"],
+        )
+
+    def test_smoke_provider_classifies_missing_proxy_source_log(self) -> None:
+        missing_log = self.root / "missing" / "andvari-access.jsonl"
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH": str(missing_log)},
+        )
+        self.assertEqual(completed.returncode, 1)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            summary["services"]["andvari"]["reason"], "proxy-runtime-unavailable"
+        )
+        self.assertIn(
+            "Andvari proxy access log unavailable",
             summary["services"]["andvari"]["detail"],
         )
 

@@ -81,11 +81,16 @@ Heimdall leaves every other step unchanged, attaches only the `andvari*` steps
 to that Docker network, injects `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`,
 and rewrites only the staged Andvari `config.toml` copy to disable GitHub
 tools. It also requires a readable host-side Squid access log at
-`/var/log/squid/andvari-access.jsonl` and copies the per-step slice into:
+`/var/log/squid/andvari-access.jsonl` and writes the host-generated per-step
+slice into:
 
-- `<run_root>/services/andvari/run/artifacts/andvari/logs/proxy_access.jsonl`
-- `<run_root>/services/andvari-v2/run/artifacts/andvari/logs/proxy_access.jsonl`
-- `<run_root>/services/andvari-v3/run/artifacts/andvari/logs/proxy_access.jsonl`
+- `<run_root>/pipeline/artifacts/proxy_access/andvari.jsonl`
+- `<run_root>/pipeline/artifacts/proxy_access/andvari-v2.jsonl`
+- `<run_root>/pipeline/artifacts/proxy_access/andvari-v3.jsonl`
+
+These proxy slices are host-generated evidence artifacts, not service-produced
+container outputs, so they intentionally live under `pipeline/` rather than
+inside `services/<step>/run/artifacts/...`.
 
 That does not by itself prove all outbound traffic is forced through Squid. The
 actual "everything goes through the proxy" guarantee depends on the VPS-side
@@ -95,6 +100,9 @@ network enforcement described in
 That guarantee should not depend on tools politely honoring `HTTP_PROXY`.
 `andvari*` steps may only use the proxy as the successful path; direct attempts
 such as raw TCP, SSH, or direct DNS must be blocked by the VPS network policy.
+Heimdall keeps only cheap global startup validation here; the source-log and
+artifact-destination checks happen immediately before an `andvari*` step
+launches, so proxy problems fail the step before model execution starts.
 
 Heimdall stages a minimal provider seed only for `andvari*`. The staged seed
 retains:
@@ -275,7 +283,10 @@ write a result file into the mounted `/run/workspace`. It writes:
 - `summary.md`
 - `logs/andvari.log`
 - `logs/kvasir.log`
-- `services/andvari/run/artifacts/andvari/logs/proxy_access.jsonl`
+- `artifacts/proxy_access/andvari.jsonl`
+
+That proxy slice is also host-generated evidence, so smoke writes it under the
+smoke output root instead of the Andvari service run directory.
 
 The summary includes the host Codex binary format and a classified failure
 reason such as `codex-binary-incompatible-with-container`,

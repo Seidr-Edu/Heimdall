@@ -28,8 +28,17 @@ host/network layer rather than quietly reaching the internet.
 - Those containers receive `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
 - The worker host exposes a readable Squid access log at
   `/var/log/squid/andvari-access.jsonl`.
-- Heimdall treats that file as append-only and copies the per-step byte slice
-  into each Andvari step's `artifacts/andvari/logs/proxy_access.jsonl`.
+- Heimdall treats that file as append-only and writes the host-generated
+  per-step byte slice into pipeline-owned evidence artifacts:
+  `pipeline/artifacts/proxy_access/andvari.jsonl`,
+  `pipeline/artifacts/proxy_access/andvari-v2.jsonl`, and
+  `pipeline/artifacts/proxy_access/andvari-v3.jsonl`.
+- Those proxy slices are not container-produced service artifacts, so they must
+  not be written under `services/<step>/run/artifacts/...`.
+- Heimdall does only cheap global startup validation for proxy config. The
+  source-log readability and destination-writability checks happen immediately
+  before each executing `andvari*` step, so proxy failures stop the step before
+  model tokens are spent.
 
 ## Squid Requirements
 

@@ -11,6 +11,7 @@ from heimdall.manifests.services import (
     build_step_runtime_hints,
     mimir_snapshot_sources,
 )
+from heimdall.andvari_proxy import pipeline_proxy_access_artifact_path
 from heimdall.models import (
     ALL_STEPS,
     STEP_ANDVARI,
@@ -524,9 +525,10 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
             )
     elif step in ANDVARI_STEPS:
         suffix = _artifact_key_suffix(step)
+        run_root = report_path.parents[4]
         generated_repo = run_dir / "artifacts" / "generated-repo"
         logs_dir = run_dir / "artifacts" / "andvari" / "logs"
-        proxy_access_log = logs_dir / "proxy_access.jsonl"
+        proxy_access_log = pipeline_proxy_access_artifact_path(run_root, step)
         report_dir = run_dir / "artifacts" / "andvari" / "report"
         if generated_repo.exists():
             records[f"generated_repo{suffix}"] = ArtifactRecord(

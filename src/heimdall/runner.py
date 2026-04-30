@@ -19,9 +19,10 @@ from heimdall.adapters import (
 )
 from heimdall.andvari_proxy import (
     ProxyAccessCapture,
+    ProxyAccessError,
     begin_proxy_access_capture,
     finish_proxy_access_capture,
-    proxy_access_artifact_path,
+    pipeline_proxy_access_artifact_path,
 )
 from heimdall.images import DockerError, run_container
 from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
@@ -346,12 +347,17 @@ def _execute_step(
     prepared = None
     fingerprint: str | None = None
     proxy_capture = None
+    proxy_artifact_path: Path | None = None
     result: StepResult | None = None
     try:
         prepared = prepare_step(step, context)
         fingerprint = _fingerprint_for_prepared_step(
             step, prepared, context, runtime_view
         )
+        proxy_artifact_path = pipeline_proxy_access_artifact_path(
+            context.run_root, step
+        )
+        proxy_capture = begin_proxy_access_capture(step, proxy_artifact_path)
         if (
             prepared.provider_bin_source is not None
             and prepared.provider_bin_dest is not None
@@ -372,7 +378,6 @@ def _execute_step(
             )
         if prepared.report_path.is_file() or prepared.report_path.is_symlink():
             prepared.report_path.unlink(missing_ok=True)
-        proxy_capture = begin_proxy_access_capture(step)
         container_env = dict(prepared.env)
         container_env.update(env_for_step(step, context.runtime))
         run_container(
@@ -387,10 +392,25 @@ def _execute_step(
             output_path=log_path,
             log_prefix=step if context.runtime.verbose else None,
         )
+    except ProxyAccessError as exc:
+        finished_at = timestamp_utc()
+        _append_step_exception_log(log_path, exc)
+        result = _execution_error_result(
+            step=step,
+            context=context,
+            runtime_view=runtime_view,
+            started_at=started_at,
+            finished_at=finished_at,
+            reason=exc.reason,
+            prepared=prepared,
+            fingerprint=fingerprint,
+        )
     except DockerError as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
-        proxy_capture_error = _finalize_proxy_capture(prepared, proxy_capture, log_path)
+        proxy_capture_error = _finalize_proxy_capture(
+            proxy_capture, proxy_artifact_path, log_path
+        )
         if prepared is not None and prepared.report_path.is_file():
             result = _result_from_report_path(
                 step=step,
@@ -418,7 +438,9 @@ def _execute_step(
     except Exception as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
-        proxy_capture_error = _finalize_proxy_capture(prepared, proxy_capture, log_path)
+        proxy_capture_error = _finalize_proxy_capture(
+            proxy_capture, proxy_artifact_path, log_path
+        )
         if prepared is not None and prepared.report_path.is_file():
             result = _result_from_report_path(
                 step=step,
@@ -446,7 +468,9 @@ def _execute_step(
     else:
         assert prepared is not None
         finished_at = timestamp_utc()
-        proxy_capture_error = _finalize_proxy_capture(prepared, proxy_capture, log_path)
+        proxy_capture_error = _finalize_proxy_capture(
+            proxy_capture, proxy_artifact_path, log_path
+        )
         result = _result_from_report_path(
             step=step,
             prepared=prepared,
@@ -467,18 +491,15 @@ def _execute_step(
 
 
 def _finalize_proxy_capture(
-    prepared: StepPrepared | None,
     proxy_capture: ProxyAccessCapture | None,
+    destination: Path | None,
     log_path: Path,
 ) -> RuntimeError | None:
-    if prepared is None or proxy_capture is None:
+    if proxy_capture is None or destination is None:
         return None
     try:
-        finish_proxy_access_capture(
-            proxy_capture,
-            proxy_access_artifact_path(prepared.run_dir),
-        )
-    except RuntimeError as exc:
+        finish_proxy_access_capture(proxy_capture, destination)
+    except ProxyAccessError as exc:
         _append_step_exception_log(log_path, exc)
         return exc
     return None

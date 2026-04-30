@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from heimdall.andvari_proxy import validate_andvari_proxy_access_log
 from heimdall.images import ensure_docker_available, resolve_images
 from heimdall.manifests.pipeline import load_pipeline_manifest
 from heimdall.models import PipelineConfig, PullPolicy, RuntimeConfig
@@ -146,10 +145,6 @@ def validate_andvari_proxy_runtime(runtime: RuntimeConfig) -> None:
         )
     if not runtime.andvari_proxy_url.strip():
         raise PreflightError("Andvari proxy enforcement requires a proxy URL.")
-    try:
-        validate_andvari_proxy_access_log()
-    except RuntimeError as exc:
-        raise PreflightError(str(exc)) from exc
 
 
 def run_pipeline_manifest_path(

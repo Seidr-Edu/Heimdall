@@ -261,15 +261,20 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
             self.assertTrue(
                 (
                     run_root
-                    / "services"
-                    / service_dir
-                    / "run"
+                    / "pipeline"
                     / "artifacts"
-                    / "andvari"
-                    / "logs"
-                    / "proxy_access.jsonl"
+                    / "proxy_access"
+                    / f"{service_dir}.jsonl"
                 ).is_file()
             )
+        self.assertEqual(
+            Path(
+                artifact_index["artifacts"]["andvari_proxy_access_log"]["path"]
+            ).resolve(),
+            (
+                run_root / "pipeline" / "artifacts" / "proxy_access" / "andvari.jsonl"
+            ).resolve(),
+        )
         self.assertTrue(
             (
                 run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"

@@ -9,9 +9,10 @@ from typing import TypedDict
 
 from heimdall.andvari_proxy import (
     ProxyAccessCapture,
+    ProxyAccessError,
     begin_proxy_access_capture,
     finish_proxy_access_capture,
-    proxy_access_artifact_path,
+    smoke_proxy_access_artifact_path,
     uses_andvari_proxy_runtime,
 )
 from heimdall.images import DockerError, resolve_image, run_container
@@ -173,7 +174,7 @@ def _run_service_probe(
     probe_input_dir = service_root / "input" / "probe-input"
     runtime_codex_home = run_dir / "provider-state" / "codex-home"
     proxy_log_artifact_path = (
-        proxy_access_artifact_path(run_dir)
+        smoke_proxy_access_artifact_path(services_dir.parent, service)
         if uses_andvari_proxy_runtime(service)
         else None
     )
@@ -272,16 +273,16 @@ def _run_service_probe(
         container_env["HEIMDALL_ANDVARI_PROXY_ENFORCED"] = "1"
     proxy_capture: ProxyAccessCapture | None = None
     try:
-        proxy_capture = begin_proxy_access_capture(service)
-    except RuntimeError as exc:
+        proxy_capture = begin_proxy_access_capture(service, proxy_log_artifact_path)
+    except ProxyAccessError as exc:
         detail = str(exc)
         write_text(log_path, f"{detail}\n")
         return {
             **base_result,
             "resolved_image_id": resolved_image_id,
-            "reason": "proxy-access-log-capture-failed",
+            "reason": exc.reason,
             "detail": detail,
-            "hint": _proxy_capture_failure_hint(),
+            "hint": _proxy_failure_hint(exc.reason),
         }
 
     failure_result: ServiceProbeResult | None = None
@@ -603,11 +604,23 @@ def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
     return None
 
 
-def _proxy_capture_failure_hint() -> str:
+def _proxy_failure_hint(reason: str) -> str:
+    if reason == "proxy-runtime-unavailable":
+        return (
+            "Heimdall could not read the Squid access log source. Confirm "
+            "/var/log/squid/andvari-access.jsonl exists and is readable by the worker."
+        )
+    if reason == "proxy-access-log-preflight-failed":
+        return (
+            "Heimdall could not prepare a writable host-owned destination for the "
+            "captured proxy slice. Confirm the smoke output artifact directory is "
+            "host-owned and writable by the worker."
+        )
     return (
         "Heimdall could not preserve the Andvari proxy log slice. Confirm "
         "/var/log/squid/andvari-access.jsonl exists, is readable by the worker, "
-        "and is not truncated or replaced while the smoke probe runs."
+        "stays stable during the probe, and the destination artifact path remains "
+        "writable."
     )
 
 
@@ -620,7 +633,7 @@ def _finalize_proxy_capture(
         return None
     try:
         finish_proxy_access_capture(capture, destination)
-    except RuntimeError as exc:
+    except ProxyAccessError as exc:
         _append_log(log_path, f"\n[heimdall][smoke] {exc}\n")
         return exc
     return None
