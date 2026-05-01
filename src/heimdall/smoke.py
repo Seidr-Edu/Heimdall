@@ -528,7 +528,7 @@ dependencies {
   smoke 'junit:junit:4.13.2'
 }
 
-tasks.register('resolveSmoke') {
+task resolveSmoke {
   doLast {
     configurations.smoke.files.each { println it.name }
   }

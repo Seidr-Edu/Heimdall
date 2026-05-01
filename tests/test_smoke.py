@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from heimdall.cli import _preflight_provider_smoke
+from heimdall.smoke import _provider_probe_script
 from heimdall.models import RuntimeConfig
 from tests.helpers import (
     build_pipeline_manifest,
@@ -271,6 +272,11 @@ enabled = true
             "web_search",
             kvasir_config,
         )
+
+    def test_provider_probe_script_uses_gradle_44_compatible_task_syntax(self) -> None:
+        script = _provider_probe_script()
+        self.assertIn("task resolveSmoke {", script)
+        self.assertNotIn("tasks.register('resolveSmoke')", script)
 
     def test_smoke_provider_classifies_exec_format_failures(self) -> None:
         completed = self._run_cli(
