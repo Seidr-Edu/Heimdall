@@ -242,6 +242,13 @@ def _proxy_access_log_path() -> Path | None:
     return Path(raw).resolve()
 
 
+def _blocked_egress_log_path() -> Path | None:
+    raw = os.environ.get("HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH")
+    if raw is None or not raw.strip():
+        return None
+    return Path(raw).resolve()
+
+
 def _append_proxy_access_log(step: str, entries: list[dict[str, Any]]) -> None:
     path = _proxy_access_log_path()
     if path is None:
@@ -253,8 +260,26 @@ def _append_proxy_access_log(step: str, entries: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
+def _append_blocked_egress_log(step: str, entries: list[dict[str, Any]]) -> None:
+    path = _blocked_egress_log_path()
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for entry in entries:
+            payload = {"step": step, **entry}
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
 def _truncate_proxy_access_log() -> None:
     path = _proxy_access_log_path()
+    if path is None:
+        return
+    path.write_text("", encoding="utf-8")
+
+
+def _truncate_blocked_egress_log() -> None:
+    path = _blocked_egress_log_path()
     if path is None:
         return
     path.write_text("", encoding="utf-8")
@@ -387,30 +412,22 @@ def _run_provider_smoke(
         print("[smoke][error] codex exec did not create /run/workspace/smoke-result.txt")
         return 1
 
-    proxy_enforced = env_vars.get("HEIMDALL_ANDVARI_PROXY_ENFORCED") == "1"
-    if proxy_enforced:
+    egress_enforced = env_vars.get("HEIMDALL_ANDVARI_EGRESS_ENFORCED") == "1"
+    if egress_enforced:
         if network_name is None:
-            print("[smoke][error] proxy probe unexpectedly succeeded: missing docker network")
-            return 1
-        required_proxy_env = {
-            "HTTP_PROXY",
-            "HTTPS_PROXY",
-            "NO_PROXY",
-            "http_proxy",
-            "https_proxy",
-            "no_proxy",
-        }
-        if not required_proxy_env.issubset(env_vars):
-            print("[smoke][error] proxy probe unexpectedly succeeded: missing proxy env")
+            print("[smoke][error] egress probe unexpectedly succeeded: missing docker network")
             return 1
         if mode == "github-probe-fail":
-            print("[smoke][error] proxy probe unexpectedly succeeded: https://github.com")
+            print("[smoke][error] egress probe unexpectedly succeeded: https://github.com")
             return 1
-        if mode == "curl-bypass-fail":
-            print("[smoke][error] proxy probe unexpectedly succeeded: curl --noproxy '*' https://github.com")
+        if mode == "maven-probe-fail":
+            print("[smoke][error] egress probe unexpectedly succeeded: maven dependency resolution")
+            return 1
+        if mode == "gradle-probe-fail":
+            print("[smoke][error] egress probe unexpectedly succeeded: gradle dependency resolution")
             return 1
         if mode == "raw-socket-fail":
-            print("[smoke][error] proxy probe unexpectedly succeeded: python raw tcp github.com:443")
+            print("[smoke][error] egress probe unexpectedly succeeded: python raw tcp github.com:22")
             return 1
 
     print("codex-cli 0.113.0")
@@ -420,11 +437,21 @@ def _run_provider_smoke(
     (workspace_dir / "last-message.txt").write_text("SMOKE_OK\n", encoding="utf-8")
     print("SMOKE_OK")
     print("[smoke] codex exec workspace probe passed")
-    if proxy_enforced:
+    if egress_enforced:
         _append_proxy_access_log(
             service,
             [
                 {"decision": "allow", "target": "example.com:443"},
+                {
+                    "decision": "allow",
+                    "target": "repo.maven.apache.org:443",
+                    "tool": "maven",
+                },
+                {
+                    "decision": "allow",
+                    "target": "repo.maven.apache.org:443",
+                    "tool": "gradle",
+                },
                 {"decision": "deny", "target": "github.com:443"},
                 {"decision": "deny", "target": "api.github.com:443"},
                 {
@@ -434,20 +461,33 @@ def _run_provider_smoke(
                 {"decision": "deny", "target": "github.com:443", "tool": "git"},
             ],
         )
-        print("[smoke] Andvari proxy probes enabled")
-        print("[smoke] proxy probe allowed: https://example.com")
-        print("[smoke] proxy probe blocked: https://github.com")
-        print("[smoke] proxy probe blocked: https://api.github.com")
+        _append_blocked_egress_log(
+            service,
+            [
+                {
+                    "decision": "deny",
+                    "target": "github.com:22",
+                    "transport": "tcp",
+                }
+            ],
+        )
+        print("[smoke] Andvari egress probes enabled")
+        print("[smoke] egress probe allowed: https://example.com")
+        print("[smoke] egress probe allowed: maven dependency resolution")
+        print("[smoke] egress probe allowed: gradle dependency resolution")
+        print("[smoke] egress probe blocked: https://github.com")
+        print("[smoke] egress probe blocked: https://api.github.com")
         print(
-            "[smoke] proxy probe blocked: https://raw.githubusercontent.com/octocat/Hello-World/master/README"
+            "[smoke] egress probe blocked: https://raw.githubusercontent.com/octocat/Hello-World/master/README"
         )
         print(
-            "[smoke] proxy probe blocked: git ls-remote https://github.com/octocat/Hello-World.git"
+            "[smoke] egress probe blocked: git ls-remote https://github.com/octocat/Hello-World.git"
         )
-        print("[smoke] proxy probe blocked: curl --noproxy '*' https://github.com")
-        print("[smoke] proxy probe blocked: python raw tcp github.com:443")
+        print("[smoke] egress probe blocked: python raw tcp github.com:22")
         if mode == "proxy-log-truncated":
             _truncate_proxy_access_log()
+        if mode == "blocked-log-truncated":
+            _truncate_blocked_egress_log()
     print("[smoke] provider smoke passed")
     return 0
 
@@ -648,6 +688,8 @@ def _run_andvari(
         reason = "fake-andvari-error"
     elif mode == "proxy-log-truncated":
         _truncate_proxy_access_log()
+    elif mode == "blocked-log-truncated":
+        _truncate_blocked_egress_log()
     _write_json(
         run_root / "outputs" / "run_report.json",
         {

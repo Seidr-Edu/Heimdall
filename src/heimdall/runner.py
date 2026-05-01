@@ -20,8 +20,11 @@ from heimdall.adapters import (
 from heimdall.andvari_proxy import (
     ProxyAccessCapture,
     ProxyAccessError,
+    begin_blocked_egress_capture,
     begin_proxy_access_capture,
+    finish_blocked_egress_capture,
     finish_proxy_access_capture,
+    pipeline_blocked_egress_artifact_path,
     pipeline_proxy_access_artifact_path,
 )
 from heimdall.images import DockerError, run_container
@@ -348,6 +351,8 @@ def _execute_step(
     fingerprint: str | None = None
     proxy_capture = None
     proxy_artifact_path: Path | None = None
+    blocked_egress_capture = None
+    blocked_egress_artifact_path: Path | None = None
     result: StepResult | None = None
     try:
         prepared = prepare_step(step, context)
@@ -357,7 +362,13 @@ def _execute_step(
         proxy_artifact_path = pipeline_proxy_access_artifact_path(
             context.run_root, step
         )
+        blocked_egress_artifact_path = pipeline_blocked_egress_artifact_path(
+            context.run_root, step
+        )
         proxy_capture = begin_proxy_access_capture(step, proxy_artifact_path)
+        blocked_egress_capture = begin_blocked_egress_capture(
+            step, blocked_egress_artifact_path
+        )
         if (
             prepared.provider_bin_source is not None
             and prepared.provider_bin_dest is not None
@@ -408,8 +419,12 @@ def _execute_step(
     except DockerError as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
-        proxy_capture_error = _finalize_proxy_capture(
-            proxy_capture, proxy_artifact_path, log_path
+        proxy_capture_error = _finalize_proxy_captures(
+            proxy_capture,
+            proxy_artifact_path,
+            blocked_egress_capture,
+            blocked_egress_artifact_path,
+            log_path,
         )
         if prepared is not None and prepared.report_path.is_file():
             result = _result_from_report_path(
@@ -438,8 +453,12 @@ def _execute_step(
     except Exception as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
-        proxy_capture_error = _finalize_proxy_capture(
-            proxy_capture, proxy_artifact_path, log_path
+        proxy_capture_error = _finalize_proxy_captures(
+            proxy_capture,
+            proxy_artifact_path,
+            blocked_egress_capture,
+            blocked_egress_artifact_path,
+            log_path,
         )
         if prepared is not None and prepared.report_path.is_file():
             result = _result_from_report_path(
@@ -468,8 +487,12 @@ def _execute_step(
     else:
         assert prepared is not None
         finished_at = timestamp_utc()
-        proxy_capture_error = _finalize_proxy_capture(
-            proxy_capture, proxy_artifact_path, log_path
+        proxy_capture_error = _finalize_proxy_captures(
+            proxy_capture,
+            proxy_artifact_path,
+            blocked_egress_capture,
+            blocked_egress_artifact_path,
+            log_path,
         )
         result = _result_from_report_path(
             step=step,
@@ -503,6 +526,37 @@ def _finalize_proxy_capture(
         _append_step_exception_log(log_path, exc)
         return exc
     return None
+
+
+def _finalize_blocked_egress_capture(
+    blocked_egress_capture: ProxyAccessCapture | None,
+    destination: Path | None,
+    log_path: Path,
+) -> RuntimeError | None:
+    if blocked_egress_capture is None or destination is None:
+        return None
+    try:
+        finish_blocked_egress_capture(blocked_egress_capture, destination)
+    except ProxyAccessError as exc:
+        _append_step_exception_log(log_path, exc)
+        return exc
+    return None
+
+
+def _finalize_proxy_captures(
+    proxy_capture: ProxyAccessCapture | None,
+    proxy_destination: Path | None,
+    blocked_egress_capture: ProxyAccessCapture | None,
+    blocked_egress_destination: Path | None,
+    log_path: Path,
+) -> RuntimeError | None:
+    first_error = _finalize_proxy_capture(proxy_capture, proxy_destination, log_path)
+    blocked_error = _finalize_blocked_egress_capture(
+        blocked_egress_capture,
+        blocked_egress_destination,
+        log_path,
+    )
+    return first_error or blocked_error
 
 
 def _apply_proxy_capture_failure(result: StepResult) -> None:

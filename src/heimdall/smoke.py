@@ -10,7 +10,10 @@ from typing import TypedDict
 from heimdall.andvari_proxy import (
     ProxyAccessCapture,
     ProxyAccessError,
+    begin_blocked_egress_capture,
     begin_proxy_access_capture,
+    finish_blocked_egress_capture,
+    smoke_blocked_egress_artifact_path,
     finish_proxy_access_capture,
     smoke_proxy_access_artifact_path,
     uses_andvari_proxy_runtime,
@@ -62,6 +65,7 @@ class ServiceProbeResult(TypedDict):
     probe_input_dir: str
     runtime_codex_home: str
     proxy_access_log_path: str | None
+    egress_block_log_path: str | None
 
 
 class SmokeSummary(TypedDict):
@@ -178,6 +182,11 @@ def _run_service_probe(
         if uses_andvari_proxy_runtime(service)
         else None
     )
+    blocked_egress_artifact_path = (
+        smoke_blocked_egress_artifact_path(services_dir.parent, service)
+        if uses_andvari_proxy_runtime(service)
+        else None
+    )
     log_path = logs_dir / f"{service}.log"
 
     ensure_directory(service_root, 0o755)
@@ -200,6 +209,11 @@ def _run_service_probe(
         "proxy_access_log_path": (
             str(proxy_log_artifact_path)
             if proxy_log_artifact_path is not None
+            else None
+        ),
+        "egress_block_log_path": (
+            str(blocked_egress_artifact_path)
+            if blocked_egress_artifact_path is not None
             else None
         ),
     }
@@ -270,10 +284,14 @@ def _run_service_probe(
     container_env = {"HEIMDALL_SMOKE_SERVICE": service}
     container_env.update(env_for_step(service, runtime))
     if uses_andvari_proxy_runtime(service):
-        container_env["HEIMDALL_ANDVARI_PROXY_ENFORCED"] = "1"
+        container_env["HEIMDALL_ANDVARI_EGRESS_ENFORCED"] = "1"
     proxy_capture: ProxyAccessCapture | None = None
+    blocked_egress_capture: ProxyAccessCapture | None = None
     try:
         proxy_capture = begin_proxy_access_capture(service, proxy_log_artifact_path)
+        blocked_egress_capture = begin_blocked_egress_capture(
+            service, blocked_egress_artifact_path
+        )
     except ProxyAccessError as exc:
         detail = str(exc)
         write_text(log_path, f"{detail}\n")
@@ -334,6 +352,8 @@ def _run_service_probe(
     proxy_capture_error = _finalize_proxy_capture(
         proxy_capture,
         proxy_log_artifact_path,
+        blocked_egress_capture,
+        blocked_egress_artifact_path,
         log_path,
     )
     if proxy_capture_error is not None:
@@ -374,10 +394,10 @@ expect_blocked() {
   local label="$1"
   shift
   if "$@" >/dev/null 2>&1; then
-    echo "[smoke][error] proxy probe unexpectedly succeeded: ${label}" >&2
+    echo "[smoke][error] egress probe unexpectedly succeeded: ${label}" >&2
     exit 1
   fi
-  echo "[smoke] proxy probe blocked: ${label}"
+  echo "[smoke] egress probe blocked: ${label}"
 }
 
 resolve_python() {
@@ -460,13 +480,62 @@ if [[ -f "${workspace_dir}/last-message.txt" ]]; then
   cat "${workspace_dir}/last-message.txt"
 fi
 echo "[smoke] codex exec workspace probe passed"
-if [[ "${HEIMDALL_ANDVARI_PROXY_ENFORCED:-0}" == "1" ]]; then
-  echo "[smoke] Andvari proxy probes enabled"
+if [[ "${HEIMDALL_ANDVARI_EGRESS_ENFORCED:-0}" == "1" ]]; then
+  echo "[smoke] Andvari egress probes enabled"
   require_tool curl
   require_tool git
+  require_tool mvn
+  require_tool gradle
   python_bin="$(resolve_python)"
   curl -fsS --max-time 15 https://example.com >/dev/null
-  echo "[smoke] proxy probe allowed: https://example.com"
+  echo "[smoke] egress probe allowed: https://example.com"
+  maven_smoke_dir=/run/maven-smoke
+  mkdir -p "${maven_smoke_dir}"
+  cat > "${maven_smoke_dir}/pom.xml" <<'MAVEN_POM_EOF'
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>heimdall.smoke</groupId>
+  <artifactId>maven-smoke</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+    </dependency>
+  </dependencies>
+</project>
+MAVEN_POM_EOF
+  mvn -q -B -Dmaven.repo.local=/run/.m2 -f "${maven_smoke_dir}/pom.xml" dependency:go-offline >/dev/null
+  echo "[smoke] egress probe allowed: maven dependency resolution"
+  gradle_smoke_dir=/run/gradle-smoke
+  mkdir -p "${gradle_smoke_dir}"
+  cat > "${gradle_smoke_dir}/settings.gradle" <<'GRADLE_SETTINGS_EOF'
+rootProject.name = 'heimdall-smoke'
+GRADLE_SETTINGS_EOF
+  cat > "${gradle_smoke_dir}/build.gradle" <<'GRADLE_BUILD_EOF'
+configurations {
+  smoke
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  smoke 'junit:junit:4.13.2'
+}
+
+tasks.register('resolveSmoke') {
+  doLast {
+    configurations.smoke.files.each { println it.name }
+  }
+}
+GRADLE_BUILD_EOF
+  GRADLE_USER_HOME=/run/.gradle gradle -q --no-daemon -p "${gradle_smoke_dir}" resolveSmoke >/dev/null
+  echo "[smoke] egress probe allowed: gradle dependency resolution"
   expect_blocked "https://github.com" curl -fsS --max-time 15 https://github.com
   expect_blocked "https://api.github.com" curl -fsS --max-time 15 https://api.github.com
   expect_blocked \
@@ -476,11 +545,8 @@ if [[ "${HEIMDALL_ANDVARI_PROXY_ENFORCED:-0}" == "1" ]]; then
     "git ls-remote https://github.com/octocat/Hello-World.git" \
     git ls-remote https://github.com/octocat/Hello-World.git HEAD
   expect_blocked \
-    "curl --noproxy '*' https://github.com" \
-    curl --noproxy '*' -fsS --max-time 15 https://github.com
-  expect_blocked \
-    "python raw tcp github.com:443" \
-    "${python_bin}" -c "import socket; socket.create_connection(('github.com', 443), timeout=10).close()"
+    "python raw tcp github.com:22" \
+    "${python_bin}" -c "import socket; socket.create_connection(('github.com', 22), timeout=10).close()"
 fi
 echo "[smoke] provider smoke passed"
 """.strip()
@@ -509,6 +575,7 @@ def _classify_probe_failure(detail: str) -> str:
         return "provider-bin-unreadable-in-container"
     if (
         "proxy probe unexpectedly succeeded" in lowered
+        or "egress probe unexpectedly succeeded" in lowered
         or "required tool unavailable" in lowered
     ):
         return "andvari-proxy-probe-failed"
@@ -552,6 +619,7 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
         for index, line in enumerate(lowered):
             if (
                 "proxy probe unexpectedly succeeded" in line
+                or "egress probe unexpectedly succeeded" in line
                 or "required tool unavailable" in line
             ):
                 return lines[index]
@@ -600,9 +668,10 @@ def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
         )
     if reason == "andvari-proxy-probe-failed":
         return (
-            "The Andvari smoke did not prove proxy enforcement. Confirm the Andvari "
-            "container is on the restricted Docker network, the proxy env vars are "
-            "present, and direct bypasses like curl --noproxy and raw TCP are blocked."
+            "The Andvari smoke did not prove restricted egress. Confirm the Andvari "
+            "container is on the restricted Docker network, allowed HTTPS and Maven/"
+            "Gradle traffic work, GitHub HTTPS is denied, and raw bypasses like "
+            "direct TCP to github.com:22 are blocked."
         )
     return None
 
@@ -610,8 +679,10 @@ def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
 def _proxy_failure_hint(reason: str) -> str:
     if reason == "proxy-runtime-unavailable":
         return (
-            "Heimdall could not read the Squid access log source. Confirm "
-            "/var/log/squid/andvari-access.jsonl exists and is readable by the worker."
+            "Heimdall could not read one of the host egress log sources. Confirm "
+            "/var/log/squid/andvari-access.jsonl and "
+            "/var/log/andvari/blocked-egress.jsonl exist and are readable by the "
+            "worker."
         )
     if reason == "proxy-access-log-preflight-failed":
         return (
@@ -620,9 +691,9 @@ def _proxy_failure_hint(reason: str) -> str:
             "host-owned and writable by the worker."
         )
     return (
-        "Heimdall could not preserve the Andvari proxy log slice. Confirm "
-        "/var/log/squid/andvari-access.jsonl exists, is readable by the worker, "
-        "stays stable during the probe, and the destination artifact path remains "
+        "Heimdall could not preserve one of the Andvari host egress log slices. "
+        "Confirm both host log sources exist, are readable by the worker, stay "
+        "stable during the probe, and the destination artifact paths remain "
         "writable."
     )
 
@@ -630,16 +701,31 @@ def _proxy_failure_hint(reason: str) -> str:
 def _finalize_proxy_capture(
     capture: ProxyAccessCapture | None,
     destination: Path | None,
+    blocked_egress_capture: ProxyAccessCapture | None,
+    blocked_egress_destination: Path | None,
     log_path: Path,
 ) -> RuntimeError | None:
-    if capture is None or destination is None:
-        return None
+    first_error = None
     try:
-        finish_proxy_access_capture(capture, destination)
+        if capture is not None and destination is not None:
+            finish_proxy_access_capture(capture, destination)
     except ProxyAccessError as exc:
         _append_log(log_path, f"\n[heimdall][smoke] {exc}\n")
-        return exc
-    return None
+        first_error = exc
+    try:
+        if (
+            blocked_egress_capture is not None
+            and blocked_egress_destination is not None
+        ):
+            finish_blocked_egress_capture(
+                blocked_egress_capture,
+                blocked_egress_destination,
+            )
+    except ProxyAccessError as exc:
+        _append_log(log_path, f"\n[heimdall][smoke] {exc}\n")
+        if first_error is None:
+            first_error = exc
+    return first_error
 
 
 def _write_probe_input(path: Path) -> None:
@@ -733,6 +819,9 @@ def _render_summary(summary: SmokeSummary) -> str:
         proxy_access_log = result.get("proxy_access_log_path")
         if proxy_access_log is not None:
             lines.append(f"- Proxy access log: `{proxy_access_log}`")
+        egress_block_log = result.get("egress_block_log_path")
+        if egress_block_log is not None:
+            lines.append(f"- Blocked egress log: `{egress_block_log}`")
         detail = result.get("detail")
         if detail is not None:
             lines.append(f"- Detail: {detail}")

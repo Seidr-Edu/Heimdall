@@ -11,7 +11,9 @@ ANDVARI_PROXY_STEPS = frozenset(
     {STEP_ANDVARI, STEP_ANDVARI_V2, STEP_ANDVARI_V3, "andvari"}
 )
 DEFAULT_ANDVARI_PROXY_ACCESS_LOG_PATH = Path("/var/log/squid/andvari-access.jsonl")
+DEFAULT_ANDVARI_BLOCKED_EGRESS_LOG_PATH = Path("/var/log/andvari/blocked-egress.jsonl")
 _PROXY_ACCESS_LOG_OVERRIDE_ENV = "HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH"
+_BLOCKED_EGRESS_LOG_OVERRIDE_ENV = "HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH"
 PROXY_RUNTIME_UNAVAILABLE = "proxy-runtime-unavailable"
 PROXY_ACCESS_LOG_PREFLIGHT_FAILED = "proxy-access-log-preflight-failed"
 PROXY_ACCESS_LOG_CAPTURE_FAILED = "proxy-access-log-capture-failed"
@@ -37,35 +39,56 @@ def uses_andvari_proxy_runtime(step: str) -> bool:
 
 
 def andvari_proxy_access_log_path() -> Path:
-    override = os.environ.get(_PROXY_ACCESS_LOG_OVERRIDE_ENV)
-    if override:
-        return Path(override).expanduser().resolve()
-    return DEFAULT_ANDVARI_PROXY_ACCESS_LOG_PATH
+    return _resolve_source_log_path(
+        _PROXY_ACCESS_LOG_OVERRIDE_ENV, DEFAULT_ANDVARI_PROXY_ACCESS_LOG_PATH
+    )
+
+
+def andvari_blocked_egress_log_path() -> Path:
+    return _resolve_source_log_path(
+        _BLOCKED_EGRESS_LOG_OVERRIDE_ENV, DEFAULT_ANDVARI_BLOCKED_EGRESS_LOG_PATH
+    )
 
 
 def validate_andvari_proxy_access_log() -> Path:
     path = andvari_proxy_access_log_path()
+    return _validate_source_log(path, "Andvari proxy access log")
+
+
+def validate_andvari_blocked_egress_log() -> Path:
+    path = andvari_blocked_egress_log_path()
+    return _validate_source_log(path, "Andvari blocked egress log")
+
+
+def _resolve_source_log_path(override_env: str, default: Path) -> Path:
+    override = os.environ.get(override_env)
+    if override:
+        return Path(override).expanduser().resolve()
+    return default
+
+
+def _validate_source_log(path: Path, source_label: str) -> Path:
     try:
         stat_result = path.stat()
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_RUNTIME_UNAVAILABLE,
-            f"Andvari proxy access log unavailable: {path} ({exc})",
+            f"{source_label} unavailable: {path} ({exc})",
         ) from exc
     if not path.is_file():
         raise ProxyAccessError(
             PROXY_RUNTIME_UNAVAILABLE,
-            f"Andvari proxy access log is not a file: {path}",
+            f"{source_label} is not a file: {path}",
         )
     if not os.access(path, os.R_OK):
         raise ProxyAccessError(
             PROXY_RUNTIME_UNAVAILABLE,
-            f"Andvari proxy access log is not readable: {path}",
+            f"{source_label} is not readable: {path}",
         )
     if stat_result.st_size < 0:
         raise ProxyAccessError(
             PROXY_RUNTIME_UNAVAILABLE,
-            f"Andvari proxy access log has invalid size: {path}",
+            f"{source_label} has invalid size: {path}",
         )
     return path
 
@@ -74,8 +97,16 @@ def pipeline_proxy_access_artifact_path(run_root: Path, step: str) -> Path:
     return run_root / "pipeline" / "artifacts" / "proxy_access" / f"{step}.jsonl"
 
 
+def pipeline_blocked_egress_artifact_path(run_root: Path, step: str) -> Path:
+    return run_root / "pipeline" / "artifacts" / "egress_block" / f"{step}.jsonl"
+
+
 def smoke_proxy_access_artifact_path(output_dir: Path, service: str) -> Path:
     return output_dir / "artifacts" / "proxy_access" / f"{service}.jsonl"
+
+
+def smoke_blocked_egress_artifact_path(output_dir: Path, service: str) -> Path:
+    return output_dir / "artifacts" / "egress_block" / f"{service}.jsonl"
 
 
 def begin_proxy_access_capture(
@@ -83,19 +114,49 @@ def begin_proxy_access_capture(
 ) -> ProxyAccessCapture | None:
     if not uses_andvari_proxy_runtime(step):
         return None
+    return _begin_host_log_capture(
+        step,
+        destination,
+        source_path=validate_andvari_proxy_access_log(),
+        source_label="Andvari proxy access log",
+        artifact_label="Andvari proxy access artifact",
+    )
+
+
+def begin_blocked_egress_capture(
+    step: str, destination: Path | None
+) -> ProxyAccessCapture | None:
+    if not uses_andvari_proxy_runtime(step):
+        return None
+    return _begin_host_log_capture(
+        step,
+        destination,
+        source_path=validate_andvari_blocked_egress_log(),
+        source_label="Andvari blocked egress log",
+        artifact_label="Andvari blocked egress artifact",
+    )
+
+
+def _begin_host_log_capture(
+    step: str,
+    destination: Path | None,
+    *,
+    source_path: Path,
+    source_label: str,
+    artifact_label: str,
+) -> ProxyAccessCapture | None:
     if destination is None:
-        raise ValueError("destination is required for Andvari proxy capture")
-    path = validate_andvari_proxy_access_log()
-    validate_proxy_access_artifact_destination(destination)
+        raise ValueError(f"destination is required for {artifact_label}")
+    validate_host_artifact_destination(destination, artifact_label)
     try:
-        stat_result = path.stat()
+        stat_result = source_path.stat()
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_RUNTIME_UNAVAILABLE,
-            f"Andvari proxy access log unavailable: {path} ({exc})",
+            f"{source_label} unavailable: {source_path} ({exc})",
         ) from exc
     return ProxyAccessCapture(
-        source_path=path,
+        source_path=source_path,
         source_device=stat_result.st_dev,
         source_inode=stat_result.st_ino,
         start_offset=stat_result.st_size,
@@ -103,18 +164,30 @@ def begin_proxy_access_capture(
 
 
 def validate_proxy_access_artifact_destination(destination: Path) -> Path:
+    return validate_host_artifact_destination(
+        destination, "Andvari proxy access artifact"
+    )
+
+
+def validate_blocked_egress_artifact_destination(destination: Path) -> Path:
+    return validate_host_artifact_destination(
+        destination, "Andvari blocked egress artifact"
+    )
+
+
+def validate_host_artifact_destination(destination: Path, artifact_label: str) -> Path:
     parent = destination.parent
     try:
         parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_PREFLIGHT_FAILED,
-            f"Failed to create Andvari proxy artifact directory {parent}: {exc}",
+            f"Failed to create {artifact_label} directory {parent}: {exc}",
         ) from exc
     if destination.exists() and destination.is_dir():
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_PREFLIGHT_FAILED,
-            f"Andvari proxy artifact destination is a directory: {destination}",
+            f"{artifact_label} destination is a directory: {destination}",
         )
 
     probe_path: Path | None = None
@@ -129,8 +202,8 @@ def validate_proxy_access_artifact_destination(destination: Path) -> Path:
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_PREFLIGHT_FAILED,
-            f"Failed to verify write access for Andvari proxy artifact "
-            f"directory {parent}: {exc}",
+            f"Failed to verify write access for {artifact_label} directory "
+            f"{parent}: {exc}",
         ) from exc
     finally:
         if probe_path is not None:
@@ -139,7 +212,7 @@ def validate_proxy_access_artifact_destination(destination: Path) -> Path:
             except OSError as exc:
                 raise ProxyAccessError(
                     PROXY_ACCESS_LOG_PREFLIGHT_FAILED,
-                    f"Failed to clean up Andvari proxy artifact probe file "
+                    f"Failed to clean up {artifact_label} probe file "
                     f"{probe_path}: {exc}",
                 ) from exc
     return destination
@@ -148,6 +221,32 @@ def validate_proxy_access_artifact_destination(destination: Path) -> Path:
 def finish_proxy_access_capture(
     capture: ProxyAccessCapture | None, destination: Path
 ) -> None:
+    _finish_host_log_capture(
+        capture,
+        destination,
+        source_label="Andvari proxy access log",
+        artifact_label="Andvari proxy access artifact",
+    )
+
+
+def finish_blocked_egress_capture(
+    capture: ProxyAccessCapture | None, destination: Path
+) -> None:
+    _finish_host_log_capture(
+        capture,
+        destination,
+        source_label="Andvari blocked egress log",
+        artifact_label="Andvari blocked egress artifact",
+    )
+
+
+def _finish_host_log_capture(
+    capture: ProxyAccessCapture | None,
+    destination: Path,
+    *,
+    source_label: str,
+    artifact_label: str,
+) -> None:
     if capture is None:
         return
     try:
@@ -155,13 +254,12 @@ def finish_proxy_access_capture(
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            f"Andvari proxy access log unavailable after step: "
-            f"{capture.source_path} ({exc})",
+            f"{source_label} unavailable after step: {capture.source_path} ({exc})",
         ) from exc
     if not capture.source_path.is_file():
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            f"Andvari proxy access log stopped being a file: {capture.source_path}",
+            f"{source_label} stopped being a file: {capture.source_path}",
         )
     if (
         stat_result.st_dev != capture.source_device
@@ -169,14 +267,12 @@ def finish_proxy_access_capture(
     ):
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            f"Andvari proxy access log was replaced during step execution: "
-            f"{capture.source_path}",
+            f"{source_label} was replaced during step execution: {capture.source_path}",
         )
     if stat_result.st_size < capture.start_offset:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            f"Andvari proxy access log was truncated during step execution: "
-            f"{capture.source_path}",
+            f"{source_label} was truncated during step execution: {capture.source_path}",
         )
 
     bytes_to_copy = stat_result.st_size - capture.start_offset
@@ -187,26 +283,26 @@ def finish_proxy_access_capture(
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            f"Failed to read Andvari proxy access log slice from "
-            f"{capture.source_path}: {exc}",
+            f"Failed to read {source_label} slice from {capture.source_path}: {exc}",
         ) from exc
     if len(payload) != bytes_to_copy:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            "Failed to read the expected Andvari proxy access log slice "
-            f"from {capture.source_path}",
+            f"Failed to read the expected {source_label} slice from "
+            f"{capture.source_path}",
         )
-    _write_proxy_access_artifact(destination, payload)
+    _write_host_artifact(destination, payload, artifact_label)
 
 
-def _write_proxy_access_artifact(destination: Path, payload: bytes) -> None:
+def _write_host_artifact(
+    destination: Path, payload: bytes, artifact_label: str
+) -> None:
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            f"Failed to create Andvari proxy artifact directory "
-            f"{destination.parent}: {exc}",
+            f"Failed to create {artifact_label} directory {destination.parent}: {exc}",
         ) from exc
 
     temp_path: Path | None = None
@@ -223,7 +319,7 @@ def _write_proxy_access_artifact(destination: Path, payload: bytes) -> None:
     except OSError as exc:
         raise ProxyAccessError(
             PROXY_ACCESS_LOG_CAPTURE_FAILED,
-            f"Failed to write Andvari proxy access artifact to {destination}: {exc}",
+            f"Failed to write {artifact_label} to {destination}: {exc}",
         ) from exc
     finally:
         if temp_path is not None:

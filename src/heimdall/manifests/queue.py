@@ -149,7 +149,6 @@ def _parse_worker_config_mapping(
             "pull_policy",
             "verbose",
             "andvari_internal_network_name",
-            "andvari_proxy_url",
             "images",
             "eitri",
             "andvari",
@@ -203,7 +202,6 @@ def _parse_worker_config_mapping(
         andvari_internal_network_name=pipeline_mod._require_str(
             data, "andvari_internal_network_name", "root"
         ),
-        andvari_proxy_url=pipeline_mod._require_str(data, "andvari_proxy_url", "root"),
     )
 
 

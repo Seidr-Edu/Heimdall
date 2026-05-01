@@ -143,7 +143,6 @@ class RuntimeConfig:
     sonar_organization: str | None
     verbose: bool = False
     andvari_internal_network_name: str = ""
-    andvari_proxy_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -161,7 +160,6 @@ class WorkerConfig:
     kvasir: KvasirConfig
     lidskjalv: LidskjalvConfig
     andvari_internal_network_name: str = ""
-    andvari_proxy_url: str = ""
 
 
 @dataclass(frozen=True)

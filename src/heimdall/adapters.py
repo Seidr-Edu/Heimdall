@@ -11,7 +11,10 @@ from heimdall.manifests.services import (
     build_step_runtime_hints,
     mimir_snapshot_sources,
 )
-from heimdall.andvari_proxy import pipeline_proxy_access_artifact_path
+from heimdall.andvari_proxy import (
+    pipeline_blocked_egress_artifact_path,
+    pipeline_proxy_access_artifact_path,
+)
 from heimdall.models import (
     ALL_STEPS,
     STEP_ANDVARI,
@@ -529,6 +532,7 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
         generated_repo = run_dir / "artifacts" / "generated-repo"
         logs_dir = run_dir / "artifacts" / "andvari" / "logs"
         proxy_access_log = pipeline_proxy_access_artifact_path(run_root, step)
+        blocked_egress_log = pipeline_blocked_egress_artifact_path(run_root, step)
         report_dir = run_dir / "artifacts" / "andvari" / "report"
         if generated_repo.exists():
             records[f"generated_repo{suffix}"] = ArtifactRecord(
@@ -541,6 +545,10 @@ def _artifact_records(step: str, report_path: Path) -> dict[str, ArtifactRecord]
         if proxy_access_log.exists():
             records[f"andvari_proxy_access_log{suffix}"] = ArtifactRecord(
                 owner=step, path=str(proxy_access_log)
+            )
+        if blocked_egress_log.exists():
+            records[f"andvari_egress_block_log{suffix}"] = ArtifactRecord(
+                owner=step, path=str(blocked_egress_log)
             )
         if report_dir.exists():
             records[f"andvari_report_dir{suffix}"] = ArtifactRecord(

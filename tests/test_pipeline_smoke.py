@@ -267,12 +267,29 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                     / f"{service_dir}.jsonl"
                 ).is_file()
             )
+            self.assertTrue(
+                (
+                    run_root
+                    / "pipeline"
+                    / "artifacts"
+                    / "egress_block"
+                    / f"{service_dir}.jsonl"
+                ).is_file()
+            )
         self.assertEqual(
             Path(
                 artifact_index["artifacts"]["andvari_proxy_access_log"]["path"]
             ).resolve(),
             (
                 run_root / "pipeline" / "artifacts" / "proxy_access" / "andvari.jsonl"
+            ).resolve(),
+        )
+        self.assertEqual(
+            Path(
+                artifact_index["artifacts"]["andvari_egress_block_log"]["path"]
+            ).resolve(),
+            (
+                run_root / "pipeline" / "artifacts" / "egress_block" / "andvari.jsonl"
             ).resolve(),
         )
         self.assertTrue(
@@ -308,6 +325,9 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 "andvari_logs",
                 "andvari_logs_v2",
                 "andvari_logs_v3",
+                "andvari_egress_block_log",
+                "andvari_egress_block_log_v2",
+                "andvari_egress_block_log_v3",
                 "andvari_proxy_access_log",
                 "andvari_proxy_access_log_v2",
                 "andvari_proxy_access_log_v3",

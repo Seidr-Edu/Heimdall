@@ -495,24 +495,12 @@ enabled = true
             self.assertEqual(run_by_step[step]["network"], "andvari-egress")
             self.assertEqual(run_by_step[step]["cap_drop"], ["ALL"])
             self.assertEqual(run_by_step[step]["security_opts"], ["no-new-privileges"])
-            self.assertEqual(
-                run_by_step[step]["env"]["HTTP_PROXY"], "http://proxy.internal:3128"
-            )
-            self.assertEqual(
-                run_by_step[step]["env"]["HTTPS_PROXY"], "http://proxy.internal:3128"
-            )
-            self.assertEqual(
-                run_by_step[step]["env"]["NO_PROXY"], "127.0.0.1,localhost"
-            )
-            self.assertEqual(
-                run_by_step[step]["env"]["http_proxy"], "http://proxy.internal:3128"
-            )
-            self.assertEqual(
-                run_by_step[step]["env"]["https_proxy"], "http://proxy.internal:3128"
-            )
-            self.assertEqual(
-                run_by_step[step]["env"]["no_proxy"], "127.0.0.1,localhost"
-            )
+            self.assertNotIn("HTTP_PROXY", run_by_step[step]["env"])
+            self.assertNotIn("HTTPS_PROXY", run_by_step[step]["env"])
+            self.assertNotIn("NO_PROXY", run_by_step[step]["env"])
+            self.assertNotIn("http_proxy", run_by_step[step]["env"])
+            self.assertNotIn("https_proxy", run_by_step[step]["env"])
+            self.assertNotIn("no_proxy", run_by_step[step]["env"])
             config = tomllib.loads(run_by_step[step]["provider_seed_config"])
             self.assertEqual(config["provider"], "chatgpt")
             self.assertEqual(config["launch_date"].isoformat(), "2026-04-21")
@@ -534,6 +522,11 @@ enabled = true
             self.assertIn(f'"step": "{step}"', log_text)
             self.assertIn('"decision": "allow"', log_text)
             self.assertIn('"decision": "deny"', log_text)
+            blocked_egress_log = (
+                run_root / "pipeline" / "artifacts" / "egress_block" / f"{step}.jsonl"
+            )
+            self.assertTrue(blocked_egress_log.is_file())
+            self.assertEqual(blocked_egress_log.read_text(encoding="utf-8"), "")
         for step in ("brokk", "eitri", "kvasir", "kvasir-v2", "kvasir-v3"):
             self.assertIsNone(run_by_step[step]["network"])
             self.assertEqual(run_by_step[step]["cap_drop"], ["ALL"])
@@ -605,6 +598,38 @@ enabled = true
         self.assertNotIn("andvari-v2", run_steps)
         self.assertNotIn("andvari-v3", run_steps)
 
+    def test_missing_blocked_egress_log_fails_andvari_step_before_launch(self) -> None:
+        missing_log = self.root / "missing" / "blocked-egress.jsonl"
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH": str(missing_log)},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["andvari"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["andvari"]["reason"], "proxy-runtime-unavailable"
+        )
+        runs = load_fake_state(self.state_path)["runs"]
+        run_steps = {entry["step"] for entry in runs}
+        self.assertNotIn("andvari", run_steps)
+
     def test_andvari_proxy_runtime_creates_minimal_config_when_missing(self) -> None:
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
 
@@ -664,6 +689,37 @@ enabled = true
             "proxy-access-log-capture-failed",
         )
 
+    def test_blocked_egress_log_truncation_marks_andvari_step_error(self) -> None:
+        blocked_egress_log = self.state_path.parent / "blocked-egress.jsonl"
+        blocked_egress_log.write_text('{"step":"before"}\n', encoding="utf-8")
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_ANDVARI_MODE": "blocked-log-truncated"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["andvari"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["andvari"]["reason"],
+            "proxy-access-log-capture-failed",
+        )
+
     def test_resume_reuses_passed_andvari_steps_without_proxy_revalidation(
         self,
     ) -> None:
@@ -686,6 +742,8 @@ enabled = true
         env = fake_env(self.bin_dir, self.state_path)
         proxy_access_log = Path(env["HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH"])
         proxy_access_log.unlink()
+        blocked_egress_log = Path(env["HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH"])
+        blocked_egress_log.unlink()
 
         resumed = subprocess.run(
             [

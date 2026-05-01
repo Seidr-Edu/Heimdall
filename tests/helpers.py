@@ -11,8 +11,8 @@ from heimdall.simpleyaml import dumps
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKES_DIR = REPO_ROOT / "tests" / "fakes"
 DEFAULT_ANDVARI_NETWORK_NAME = "andvari-egress"
-DEFAULT_ANDVARI_PROXY_URL = "http://proxy.internal:3128"
 _PROXY_ACCESS_LOG_ENV = "HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH"
+_BLOCKED_EGRESS_LOG_ENV = "HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH"
 
 
 def make_temp_dir(prefix: str) -> Path:
@@ -97,7 +97,6 @@ def build_worker_config(
     skip_sonar: bool = True,
     verbose: bool = False,
     andvari_internal_network_name: str = DEFAULT_ANDVARI_NETWORK_NAME,
-    andvari_proxy_url: str = DEFAULT_ANDVARI_PROXY_URL,
 ) -> str:
     document: dict[str, object] = {
         "version": 1,
@@ -108,7 +107,6 @@ def build_worker_config(
         "pull_policy": "if-missing",
         "verbose": verbose,
         "andvari_internal_network_name": andvari_internal_network_name,
-        "andvari_proxy_url": andvari_proxy_url,
         "images": {
             "brokk": "fake/brokk:1",
             "eitri": "fake/eitri:1",
@@ -226,6 +224,10 @@ def fake_env(
     proxy_access_log.parent.mkdir(parents=True, exist_ok=True)
     proxy_access_log.touch(exist_ok=True)
     env[_PROXY_ACCESS_LOG_ENV] = str(proxy_access_log)
+    blocked_egress_log = state_path.parent / "blocked-egress.jsonl"
+    blocked_egress_log.parent.mkdir(parents=True, exist_ok=True)
+    blocked_egress_log.touch(exist_ok=True)
+    env[_BLOCKED_EGRESS_LOG_ENV] = str(blocked_egress_log)
     if extra:
         env.update(extra)
     return env
@@ -237,8 +239,6 @@ def with_default_andvari_runtime_args(args: list[str]) -> list[str]:
     result = list(args)
     if "--andvari-internal-network-name" not in result:
         result.extend(["--andvari-internal-network-name", DEFAULT_ANDVARI_NETWORK_NAME])
-    if "--andvari-proxy-url" not in result:
-        result.extend(["--andvari-proxy-url", DEFAULT_ANDVARI_PROXY_URL])
     return result
 
 

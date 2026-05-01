@@ -53,7 +53,6 @@ heimdall run /abs/path/pipeline.yaml \
   --codex-host-bin-dir /abs/path/host/provider/bin \
   --codex-home-dir /abs/path/provider/home \
   --andvari-internal-network-name andvari-egress \
-  --andvari-proxy-url http://andvari-proxy.internal:3128 \
   --verbose
 
 heimdall resume /abs/path/runs/<run_id> \
@@ -61,7 +60,6 @@ heimdall resume /abs/path/runs/<run_id> \
   --codex-host-bin-dir /abs/path/host/provider/bin \
   --codex-home-dir /abs/path/provider/home \
   --andvari-internal-network-name andvari-egress \
-  --andvari-proxy-url http://andvari-proxy.internal:3128
 ```
 
 `python3 -m heimdall.cli ...` works as well. After installation the console
@@ -70,25 +68,33 @@ omitted, Heimdall uses `--codex-bin-dir` for both host preflight and container
 mounts.
 
 Heimdall always routes `andvari`, `andvari-v2`, and `andvari-v3` through the
-configured proxy-backed Docker network. Provide the required runtime flags:
+configured restricted Docker network. Provide the required runtime flag:
 
 ```bash
-  --andvari-internal-network-name andvari-egress \
-  --andvari-proxy-url http://andvari-proxy.internal:3128
+  --andvari-internal-network-name andvari-egress
 ```
 
 Heimdall leaves every other step unchanged, attaches only the `andvari*` steps
-to that Docker network, injects `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`,
-and rewrites only the staged Andvari `config.toml` copy to disable GitHub
-tools. It also requires a readable host-side Squid access log at
-`/var/log/squid/andvari-access.jsonl` and writes the host-generated per-step
-slice into:
+to that Docker network, does not inject proxy environment variables, and
+rewrites only the staged Andvari `config.toml` copy to disable GitHub tools.
+It requires readable host-side egress logs at:
+
+- `/var/log/squid/andvari-access.jsonl`
+- `/var/log/andvari/blocked-egress.jsonl`
+
+Heimdall writes the host-generated per-step request-log slice into:
 
 - `<run_root>/pipeline/artifacts/proxy_access/andvari.jsonl`
 - `<run_root>/pipeline/artifacts/proxy_access/andvari-v2.jsonl`
 - `<run_root>/pipeline/artifacts/proxy_access/andvari-v3.jsonl`
 
-These proxy slices are host-generated evidence artifacts, not service-produced
+It also writes the host-generated blocked-egress slice into:
+
+- `<run_root>/pipeline/artifacts/egress_block/andvari.jsonl`
+- `<run_root>/pipeline/artifacts/egress_block/andvari-v2.jsonl`
+- `<run_root>/pipeline/artifacts/egress_block/andvari-v3.jsonl`
+
+These egress slices are host-generated evidence artifacts, not service-produced
 container outputs, so they intentionally live under `pipeline/` rather than
 inside `services/<step>/run/artifacts/...`.
 
@@ -98,11 +104,13 @@ network enforcement described in
 [docs/andvari_proxy_infra.md](docs/andvari_proxy_infra.md).
 
 That guarantee should not depend on tools politely honoring `HTTP_PROXY`.
-`andvari*` steps may only use the proxy as the successful path; direct attempts
-such as raw TCP, SSH, or direct DNS must be blocked by the VPS network policy.
-Heimdall keeps only cheap global startup validation here; the source-log and
+`andvari*` steps must be able to use normal outbound HTTP/S while the VPS
+transparently intercepts and logs those requests; direct attempts such as raw
+TCP, SSH, or direct DNS must be blocked by the VPS network policy. Heimdall
+keeps only cheap global startup validation here; the source-log and
 artifact-destination checks happen immediately before an `andvari*` step
-launches, so proxy problems fail the step before model execution starts.
+launches, so egress logging problems fail the step before model execution
+starts.
 
 Heimdall stages a minimal provider seed only for `andvari*`. The staged seed
 retains:
@@ -130,15 +138,14 @@ Worker config example:
 - [examples/worker.example.yaml](examples/worker.example.yaml)
 - [examples/heimdall-worker.service](examples/heimdall-worker.service)
 
-The worker config requires the Andvari proxy settings:
+The worker config requires the Andvari restricted-egress network setting:
 
 - `andvari_internal_network_name: andvari-egress`
-- `andvari_proxy_url: http://andvari-proxy.internal:3128`
 
-Heimdall assumes the configured proxy denies the documented GitHub-family
-traffic for the Andvari containers while still allowing other proxied traffic.
-See [docs/andvari_proxy_infra.md](docs/andvari_proxy_infra.md) for the VPS-side
-Squid and firewall requirements.
+Heimdall assumes the host transparently intercepts and logs allowed/denied
+HTTP/S traffic for the Andvari containers while separately logging blocked
+bypasses. See [docs/andvari_proxy_infra.md](docs/andvari_proxy_infra.md) for the
+VPS-side Squid and firewall requirements.
 
 Submit one job from your local machine over SSH:
 
@@ -219,7 +226,6 @@ python3 -m heimdall.cli smoke-provider /abs/path/pipeline.yaml \
   --codex-host-bin-dir /abs/path/host/provider/bin \
   --codex-home-dir /abs/path/provider/home \
   --andvari-internal-network-name andvari-egress \
-  --andvari-proxy-url http://andvari-proxy.internal:3128 \
   --verbose
 ```
 
@@ -266,7 +272,6 @@ python3 -m heimdall.cli smoke-provider /abs/path/pipeline.yaml \
   --codex-host-bin-dir /tmp/heimdall-codex-mac-bin \
   --codex-home-dir "$HOME/.codex" \
   --andvari-internal-network-name andvari-egress \
-  --andvari-proxy-url http://andvari-proxy.internal:3128 \
   --verbose
 ```
 
@@ -284,37 +289,39 @@ write a result file into the mounted `/run/workspace`. It writes:
 - `logs/andvari.log`
 - `logs/kvasir.log`
 - `artifacts/proxy_access/andvari.jsonl`
+- `artifacts/egress_block/andvari.jsonl`
 
-That proxy slice is also host-generated evidence, so smoke writes it under the
-smoke output root instead of the Andvari service run directory.
+Those egress slices are also host-generated evidence, so smoke writes them
+under the smoke output root instead of the Andvari service run directory.
 
 The summary includes the host Codex binary format and a classified failure
 reason such as `codex-binary-incompatible-with-container`,
 `codex-auth-unusable-in-container`, or
 `codex-exec-workspace-access-failed`.
 
-For `smoke-provider`, Heimdall always applies the Andvari proxy path to the
-Andvari probe container. Heimdall also:
+For `smoke-provider`, Heimdall always applies the Andvari restricted-egress path
+to the Andvari probe container. Heimdall also:
 
 - rewrites only the staged Andvari `config.toml` copy to force
   `web_search = "disabled"`
 - rewrites only the staged Andvari `config.toml` copy to force
   `plugins."github@openai-curated".enabled = false`
 - attaches only the Andvari probe container to the configured Docker network
-- injects only the Andvari probe container with `HTTP_PROXY`, `HTTPS_PROXY`,
-  and `NO_PROXY`
-- verifies an allowed proxied `curl https://example.com` and captures it in the
-  Andvari proxy log artifact
+- verifies an allowed `curl https://example.com` and captures it in the Andvari
+  request-log artifact
+- verifies Maven dependency resolution works
+- verifies Gradle dependency resolution works
 - verifies `curl` to `github.com`, `api.github.com`, and
   `raw.githubusercontent.com` fails
 - verifies `git ls-remote https://github.com/...` fails
-- verifies `curl --noproxy '*' https://github.com` fails
-- verifies a raw Python TCP connect to `github.com:443` fails
+- verifies a raw Python TCP connect to `github.com:22` fails and captures it in
+  the blocked-egress artifact
 
-Heimdall does not implement the proxy itself. The external proxy must log both
-allowed and denied proxied requests to `/var/log/squid/andvari-access.jsonl`,
-and the host/network layer must block direct bypasses such as raw TCP, SSH, and
-direct DNS from the `andvari-egress` subnet. The proxy or egress policy must
+Heimdall does not implement the network controls itself. The host must log both
+allowed and denied HTTP/S requests to `/var/log/squid/andvari-access.jsonl`,
+log blocked bypasses to `/var/log/andvari/blocked-egress.jsonl`, and block
+direct bypasses such as raw TCP, SSH, and direct DNS from the
+`andvari-egress` subnet. The proxy or egress policy must
 deny at least the following effective destinations:
 
 - `github.com`
@@ -373,7 +380,6 @@ python3 -m heimdall.cli run /abs/path/pipeline.yaml \
   --codex-bin-dir /abs/path/provider/bin \
   --codex-home-dir /abs/path/provider/home \
   --andvari-internal-network-name andvari-egress \
-  --andvari-proxy-url http://andvari-proxy.internal:3128 \
   --verbose
 ```
 
@@ -392,7 +398,6 @@ python3 -m heimdall.cli run /abs/path/pipeline.yaml \
   --codex-host-bin-dir /abs/path/mac/provider/bin \
   --codex-home-dir /abs/path/provider/home \
   --andvari-internal-network-name andvari-egress \
-  --andvari-proxy-url http://andvari-proxy.internal:3128 \
   --verbose
 ```
 

@@ -1,0 +1,17 @@
+[Unit]
+Description=Andvari blocked-egress NFLOG logger
+After=network-online.target local-fs.target
+Wants=network-online.target
+Before=heimdall-worker.service
+
+[Service]
+Type=forking
+RuntimeDirectory=andvari-ulogd
+RuntimeDirectoryMode=0755
+PIDFile=/run/andvari-ulogd/ulogd.pid
+ExecStart=/usr/sbin/ulogd -d -c /etc/andvari/blocked-egress-ulogd.conf -p /run/andvari-ulogd/ulogd.pid
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

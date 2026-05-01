@@ -75,9 +75,16 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         proxy_access_log = (
             self.output_dir / "artifacts" / "proxy_access" / "andvari.jsonl"
         )
+        blocked_egress_log = (
+            self.output_dir / "artifacts" / "egress_block" / "andvari.jsonl"
+        )
         self.assertTrue(proxy_access_log.is_file())
+        self.assertTrue(blocked_egress_log.is_file())
         self.assertFalse(
             (self.output_dir / "artifacts" / "proxy_access" / "kvasir.jsonl").exists()
+        )
+        self.assertFalse(
+            (self.output_dir / "artifacts" / "egress_block" / "kvasir.jsonl").exists()
         )
         self.assertTrue(
             (
@@ -106,11 +113,18 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         self.assertIn('"target": "example.com:443"', proxy_log_text)
         self.assertIn('"decision": "deny"', proxy_log_text)
         self.assertIn('"target": "github.com:443"', proxy_log_text)
+        blocked_log_text = blocked_egress_log.read_text(encoding="utf-8")
+        self.assertIn('"target": "github.com:22"', blocked_log_text)
         self.assertEqual(
             Path(summary["services"]["andvari"]["proxy_access_log_path"]).resolve(),
             proxy_access_log.resolve(),
         )
+        self.assertEqual(
+            Path(summary["services"]["andvari"]["egress_block_log_path"]).resolve(),
+            blocked_egress_log.resolve(),
+        )
         self.assertIsNone(summary["services"]["kvasir"]["proxy_access_log_path"])
+        self.assertIsNone(summary["services"]["kvasir"]["egress_block_log_path"])
 
         runs = load_fake_state(self.state_path)["runs"]
         run_by_step = {entry["step"]: entry for entry in runs}
@@ -143,18 +157,9 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         self.assertEqual(
             run_by_step["smoke-andvari"]["security_opts"], ["no-new-privileges"]
         )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["HTTP_PROXY"],
-            "http://proxy.internal:3128",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["HTTPS_PROXY"],
-            "http://proxy.internal:3128",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["NO_PROXY"],
-            "127.0.0.1,localhost",
-        )
+        self.assertNotIn("HTTP_PROXY", run_by_step["smoke-andvari"]["env"])
+        self.assertNotIn("HTTPS_PROXY", run_by_step["smoke-andvari"]["env"])
+        self.assertNotIn("NO_PROXY", run_by_step["smoke-andvari"]["env"])
         self.assertEqual(
             run_by_step["smoke-andvari"]["provider_seed_entries"],
             [
@@ -174,7 +179,7 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
             run_by_step["smoke-kvasir"]["provider_seed_entries"],
         )
 
-    def test_smoke_provider_runs_andvari_proxy_probes_by_default(self) -> None:
+    def test_smoke_provider_runs_andvari_egress_probes_by_default(self) -> None:
         write_file(
             self.home_dir / "config.toml",
             """
@@ -208,13 +213,12 @@ enabled = true
         log_text = (self.output_dir / "logs" / "andvari.log").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Andvari proxy probes enabled", log_text)
-        self.assertIn("proxy probe allowed: https://example.com", log_text)
-        self.assertIn("proxy probe blocked: https://github.com", log_text)
-        self.assertIn(
-            "proxy probe blocked: curl --noproxy '*' https://github.com", log_text
-        )
-        self.assertIn("proxy probe blocked: python raw tcp github.com:443", log_text)
+        self.assertIn("Andvari egress probes enabled", log_text)
+        self.assertIn("egress probe allowed: https://example.com", log_text)
+        self.assertIn("egress probe allowed: maven dependency resolution", log_text)
+        self.assertIn("egress probe allowed: gradle dependency resolution", log_text)
+        self.assertIn("egress probe blocked: https://github.com", log_text)
+        self.assertIn("egress probe blocked: python raw tcp github.com:22", log_text)
 
         runs = load_fake_state(self.state_path)["runs"]
         run_by_step = {entry["step"]: entry for entry in runs}
@@ -223,40 +227,30 @@ enabled = true
         self.assertEqual(
             run_by_step["smoke-andvari"]["security_opts"], ["no-new-privileges"]
         )
+        self.assertNotIn("HTTP_PROXY", run_by_step["smoke-andvari"]["env"])
+        self.assertNotIn("HTTPS_PROXY", run_by_step["smoke-andvari"]["env"])
+        self.assertNotIn("NO_PROXY", run_by_step["smoke-andvari"]["env"])
+        self.assertNotIn("http_proxy", run_by_step["smoke-andvari"]["env"])
+        self.assertNotIn("https_proxy", run_by_step["smoke-andvari"]["env"])
+        self.assertNotIn("no_proxy", run_by_step["smoke-andvari"]["env"])
         self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["HTTP_PROXY"],
-            "http://proxy.internal:3128",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["HTTPS_PROXY"],
-            "http://proxy.internal:3128",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["NO_PROXY"],
-            "127.0.0.1,localhost",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["http_proxy"],
-            "http://proxy.internal:3128",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["https_proxy"],
-            "http://proxy.internal:3128",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["no_proxy"],
-            "127.0.0.1,localhost",
-        )
-        self.assertEqual(
-            run_by_step["smoke-andvari"]["env"]["HEIMDALL_ANDVARI_PROXY_ENFORCED"], "1"
+            run_by_step["smoke-andvari"]["env"]["HEIMDALL_ANDVARI_EGRESS_ENFORCED"], "1"
         )
         proxy_access_log = (
             self.output_dir / "artifacts" / "proxy_access" / "andvari.jsonl"
         )
+        blocked_egress_log = (
+            self.output_dir / "artifacts" / "egress_block" / "andvari.jsonl"
+        )
         self.assertTrue(proxy_access_log.is_file())
+        self.assertTrue(blocked_egress_log.is_file())
         proxy_log_text = proxy_access_log.read_text(encoding="utf-8")
         self.assertIn('"target": "example.com:443"', proxy_log_text)
+        self.assertIn('"tool": "maven"', proxy_log_text)
+        self.assertIn('"tool": "gradle"', proxy_log_text)
         self.assertIn('"target": "api.github.com:443"', proxy_log_text)
+        blocked_log_text = blocked_egress_log.read_text(encoding="utf-8")
+        self.assertIn('"target": "github.com:22"', blocked_log_text)
         self.assertIsNone(run_by_step["smoke-kvasir"]["network"])
         self.assertEqual(run_by_step["smoke-kvasir"]["cap_drop"], ["ALL"])
         self.assertEqual(
@@ -399,7 +393,7 @@ enabled = true
             "andvari-proxy-probe-failed",
         )
         self.assertIn(
-            "proxy probe unexpectedly succeeded: https://github.com",
+            "egress probe unexpectedly succeeded: https://github.com",
             summary["services"]["andvari"]["detail"],
         )
 
@@ -428,6 +422,34 @@ enabled = true
         )
         self.assertIn(
             "Andvari proxy access log unavailable",
+            summary["services"]["andvari"]["detail"],
+        )
+
+    def test_smoke_provider_classifies_missing_blocked_egress_source_log(self) -> None:
+        missing_log = self.root / "missing" / "blocked-egress.jsonl"
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH": str(missing_log)},
+        )
+        self.assertEqual(completed.returncode, 1)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            summary["services"]["andvari"]["reason"], "proxy-runtime-unavailable"
+        )
+        self.assertIn(
+            "Andvari blocked egress log unavailable",
             summary["services"]["andvari"]["detail"],
         )
 
@@ -461,6 +483,41 @@ enabled = true
         )
         self.assertIn(
             "was truncated during step execution",
+            summary["services"]["andvari"]["detail"],
+        )
+
+    def test_smoke_provider_classifies_post_run_blocked_egress_capture_failures(
+        self,
+    ) -> None:
+        fake_env_map = fake_env(self.bin_dir, self.state_path)
+        Path(fake_env_map["HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH"]).write_text(
+            '{"step":"before"}\n',
+            encoding="utf-8",
+        )
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_SMOKE_ANDVARI_MODE": "blocked-log-truncated"},
+        )
+        self.assertEqual(completed.returncode, 1)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            summary["services"]["andvari"]["reason"],
+            "proxy-access-log-capture-failed",
+        )
+        self.assertIn(
+            "Andvari blocked egress log was truncated during step execution",
             summary["services"]["andvari"]["detail"],
         )
 
@@ -572,7 +629,6 @@ enabled = true
             sonar_organization=None,
             verbose=False,
             andvari_internal_network_name="andvari-egress",
-            andvari_proxy_url="http://proxy.internal:3128",
         )
 
         original_chmod = Path.chmod

@@ -22,7 +22,6 @@ def build_runtime(
     verbose: bool,
     *,
     andvari_internal_network_name: str,
-    andvari_proxy_url: str,
 ) -> RuntimeConfig:
     runs_root = runs_root.resolve()
     codex_bin_dir = codex_bin_dir.resolve()
@@ -43,7 +42,6 @@ def build_runtime(
         sonar_organization=os.environ.get("SONAR_ORGANIZATION"),
         verbose=verbose,
         andvari_internal_network_name=andvari_internal_network_name,
-        andvari_proxy_url=andvari_proxy_url,
     )
 
 
@@ -141,10 +139,8 @@ def check_codex_login(runtime: RuntimeConfig) -> None:
 def validate_andvari_proxy_runtime(runtime: RuntimeConfig) -> None:
     if not runtime.andvari_internal_network_name.strip():
         raise PreflightError(
-            "Andvari proxy enforcement requires an internal Docker network name."
+            "Andvari restricted egress requires an internal Docker network name."
         )
-    if not runtime.andvari_proxy_url.strip():
-        raise PreflightError("Andvari proxy enforcement requires a proxy URL.")
 
 
 def run_pipeline_manifest_path(

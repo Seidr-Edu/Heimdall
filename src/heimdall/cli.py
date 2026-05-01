@@ -189,12 +189,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--andvari-internal-network-name",
         required=True,
-        help="Docker network name used for Andvari proxy enforcement",
-    )
-    parser.add_argument(
-        "--andvari-proxy-url",
-        required=True,
-        help="Proxy URL injected into Andvari containers",
+        help="Docker network name used for Andvari restricted egress",
     )
 
 
@@ -207,7 +202,6 @@ def _run_command(args: argparse.Namespace) -> int:
         args.pull_policy,
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
-        andvari_proxy_url=args.andvari_proxy_url,
     )
     run_pipeline_manifest_path(args.pipeline_manifest, runtime)
     return 0
@@ -222,7 +216,6 @@ def _resume_command(args: argparse.Namespace) -> int:
         args.pull_policy,
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
-        andvari_proxy_url=args.andvari_proxy_url,
     )
     resume_run_root(args.run_dir, runtime)
     return 0
@@ -243,7 +236,6 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         args.pull_policy,
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
-        andvari_proxy_url=args.andvari_proxy_url,
     )
     _preflight_provider_smoke(runtime, output_dir)
     if runtime.verbose:

@@ -6,12 +6,10 @@ codex_host_bin_dir: /srv/pipeline/provider/codex/bin
 codex_home_dir: /srv/pipeline/provider/codex/home
 pull_policy: if-missing
 verbose: false
-# These settings are required for the always-on Andvari proxy path.
-# The proxy itself is external infrastructure and must deny the documented
-# GitHub-family hosts while logging all proxied requests to
-# /var/log/squid/andvari-access.jsonl on the worker host.
+# This setting is required for the always-on Andvari restricted-egress path.
+# Host infrastructure, not Heimdall env vars, is the source of truth for
+# transparent HTTP/S interception and blocked-bypass logging.
 andvari_internal_network_name: andvari-egress
-andvari_proxy_url: http://andvari-proxy.internal:3128
 
 images:
   brokk: ghcr.io/seidr-edu/brokk:v1.0.0

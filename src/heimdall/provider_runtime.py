@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import re
 import tomllib
 from collections.abc import Mapping
@@ -13,27 +12,12 @@ from heimdall.models import RuntimeConfig
 from heimdall.utils import stage_readable_paths, stage_readable_tree, write_text
 
 _GITHUB_PLUGIN_NAME = "github@openai-curated"
-_NO_PROXY_VALUE = "127.0.0.1,localhost"
 _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _MINIMAL_ANDVARI_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
 
 
 def andvari_network_name(runtime: RuntimeConfig) -> str | None:
     return runtime.andvari_internal_network_name
-
-
-def andvari_proxy_env(runtime: RuntimeConfig) -> dict[str, str]:
-    proxy_url = runtime.andvari_proxy_url
-    if not proxy_url:
-        return {}
-    return {
-        "HTTP_PROXY": proxy_url,
-        "HTTPS_PROXY": proxy_url,
-        "NO_PROXY": _NO_PROXY_VALUE,
-        "http_proxy": proxy_url,
-        "https_proxy": proxy_url,
-        "no_proxy": _NO_PROXY_VALUE,
-    }
 
 
 def docker_network_for_step(step: str, runtime: RuntimeConfig) -> str | None:
@@ -43,9 +27,9 @@ def docker_network_for_step(step: str, runtime: RuntimeConfig) -> str | None:
 
 
 def env_for_step(step: str, runtime: RuntimeConfig) -> dict[str, str]:
-    if not uses_andvari_proxy_runtime(step):
-        return {}
-    return andvari_proxy_env(runtime)
+    del runtime
+    del step
+    return {}
 
 
 def stage_provider_seed(
@@ -86,12 +70,6 @@ def sanitize_andvari_codex_seed(
     payload["plugins"] = plugins
 
     write_text(config_path, _dump_toml_document(payload))
-
-
-def proxy_url_fingerprint(runtime: RuntimeConfig) -> str | None:
-    if not runtime.andvari_proxy_url:
-        return None
-    return hashlib.sha256(runtime.andvari_proxy_url.encode("utf-8")).hexdigest()
 
 
 def _load_toml_document(path: Path) -> dict[str, Any]:
