@@ -88,9 +88,7 @@ def sanitize_andvari_claude_seed(
         return
     payload.pop("mcpServers", None)
     try:
-        settings_path.write_text(
-            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-        )
+        settings_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         raise RuntimeError(
             f"Failed to write staged Claude settings {settings_path}: {exc}"

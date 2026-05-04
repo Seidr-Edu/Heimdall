@@ -180,7 +180,9 @@ def _run_service_probe(
     provider_bin_dir = service_root / "input" / "provider-bin"
     provider_seed_dir = service_root / "input" / "provider-seed"
     probe_input_dir = service_root / "input" / "probe-input"
-    provider_home_subdir = "claude-home" if runtime.provider == "claude" else "codex-home"
+    provider_home_subdir = (
+        "claude-home" if runtime.provider == "claude" else "codex-home"
+    )
     runtime_provider_home = run_dir / "provider-state" / provider_home_subdir
     proxy_log_artifact_path = (
         smoke_proxy_access_artifact_path(services_dir.parent, service)
@@ -718,7 +720,10 @@ def _classify_probe_failure(detail: str, provider: str = "codex") -> str:
             or "codex exec created /run/workspace/smoke-result.txt, but it did not match /input/smoke.txt"
             in lowered
             or ("command failed: codex exec" in lowered and "sandbox" in lowered)
-            or ("command failed: codex exec" in lowered and "/input/smoke.txt" in lowered)
+            or (
+                "command failed: codex exec" in lowered
+                and "/input/smoke.txt" in lowered
+            )
             or ("command failed: codex exec" in lowered and "/run/workspace" in lowered)
         ):
             return "provider-exec-workspace-access-failed"

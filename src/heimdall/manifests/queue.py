@@ -170,9 +170,7 @@ def _parse_worker_config_mapping(
         )
     provider_raw = pipeline_mod._optional_str(data, "provider", "root") or "codex"
     if provider_raw not in {"codex", "claude"}:
-        raise ManifestValidationError(
-            "root.provider must be one of: codex, claude"
-        )
+        raise ManifestValidationError("root.provider must be one of: codex, claude")
     provider = cast(Provider, provider_raw)
     return WorkerConfig(
         queue_root=_resolve_path(

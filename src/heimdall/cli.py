@@ -340,7 +340,9 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise PreflightError(f"Smoke output dir is not empty: {output_dir}")
     if not runtime.codex_bin_dir.is_dir():
-        raise PreflightError(f"Provider bin dir does not exist: {runtime.codex_bin_dir}")
+        raise PreflightError(
+            f"Provider bin dir does not exist: {runtime.codex_bin_dir}"
+        )
     if not runtime.codex_host_bin_dir.is_dir():
         raise PreflightError(
             f"Provider host bin dir does not exist: {runtime.codex_host_bin_dir}"
