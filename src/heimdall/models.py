@@ -145,6 +145,7 @@ class RuntimeConfig:
     verbose: bool = False
     andvari_internal_network_name: str = ""
     provider: Provider = "codex"
+    claude_home_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,7 @@ class WorkerConfig:
     lidskjalv: LidskjalvConfig
     andvari_internal_network_name: str = ""
     provider: Provider = "codex"
+    claude_home_dir: Path | None = None
 
 
 @dataclass(frozen=True)

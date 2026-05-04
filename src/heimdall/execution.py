@@ -23,6 +23,7 @@ def build_runtime(
     *,
     andvari_internal_network_name: str,
     provider: Provider = "codex",
+    claude_home_dir: Path | None = None,
 ) -> RuntimeConfig:
     runs_root = runs_root.resolve()
     codex_bin_dir = codex_bin_dir.resolve()
@@ -44,6 +45,9 @@ def build_runtime(
         verbose=verbose,
         andvari_internal_network_name=andvari_internal_network_name,
         provider=provider,
+        claude_home_dir=claude_home_dir.resolve()
+        if claude_home_dir is not None
+        else None,
     )
 
 
@@ -66,9 +70,8 @@ def preflight(config: PipelineConfig, runtime: RuntimeConfig) -> None:
             f"Provider host bin dir does not exist: {runtime.codex_host_bin_dir}"
         )
     if not runtime.codex_home_dir.is_dir():
-        raise PreflightError(
-            f"Provider home dir does not exist: {runtime.codex_home_dir}"
-        )
+        raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
+    _check_claude_home_dir(runtime)
     validate_andvari_proxy_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
@@ -119,9 +122,8 @@ def preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
             f"Provider host bin dir does not exist: {runtime.codex_host_bin_dir}"
         )
     if not runtime.codex_home_dir.is_dir():
-        raise PreflightError(
-            f"Provider home dir does not exist: {runtime.codex_home_dir}"
-        )
+        raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
+    _check_claude_home_dir(runtime)
     validate_andvari_proxy_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
@@ -132,6 +134,20 @@ def preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
             f"[heimdall] {runtime.provider} provider credentials ok",
             file=sys.stderr,
             flush=True,
+        )
+
+
+def _check_claude_home_dir(runtime: RuntimeConfig) -> None:
+    if runtime.provider != "claude":
+        return
+    if runtime.claude_home_dir is None:
+        raise PreflightError(
+            "claude_home_dir must be set in worker.yaml (or --claude-home-dir) "
+            "when provider is claude."
+        )
+    if not runtime.claude_home_dir.is_dir():
+        raise PreflightError(
+            f"Claude home dir does not exist: {runtime.claude_home_dir}"
         )
 
 
@@ -165,7 +181,8 @@ def _check_claude_credentials(runtime: RuntimeConfig) -> None:
     claude_executable = runtime.codex_host_bin_dir / "claude"
     if not claude_executable.is_file():
         raise PreflightError(f"Missing claude executable: {claude_executable}")
-    credentials_path = runtime.codex_home_dir / "credentials.json"
+    home = runtime.claude_home_dir or runtime.codex_home_dir
+    credentials_path = home / "credentials.json"
     if not credentials_path.is_file():
         raise PreflightError(
             f"Claude credentials not found: {credentials_path}. "

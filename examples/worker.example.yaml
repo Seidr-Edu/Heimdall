@@ -5,9 +5,11 @@ runs_root: /srv/pipeline/runs
 # For codex: codex_home_dir must contain auth.json, config.toml, skills/.system/
 # For claude: codex_home_dir must contain credentials.json and settings.json
 provider: codex
-codex_bin_dir: /srv/pipeline/provider/codex/bin
-codex_host_bin_dir: /srv/pipeline/provider/codex/bin
+codex_bin_dir: /srv/pipeline/provider/bin
+codex_host_bin_dir: /srv/pipeline/provider/bin
 codex_home_dir: /srv/pipeline/provider/codex/home
+# Required when provider: claude. The bin dir above must contain both codex and claude binaries.
+# claude_home_dir: /srv/pipeline/provider/claude/home
 pull_policy: if-missing
 verbose: false
 # This setting is required for the always-on Andvari restricted-egress path.

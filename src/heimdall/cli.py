@@ -183,10 +183,15 @@ def _add_runtime_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--codex-home-dir", type=Path, required=True)
     parser.add_argument(
+        "--claude-home-dir",
+        type=Path,
+        help="Claude home dir (credentials.json, settings.json). Required when --provider claude.",
+    )
+    parser.add_argument(
         "--provider",
         choices=("codex", "claude"),
         default="codex",
-        help="Provider CLI to use for Andvari/Kvasir steps (default: codex)",
+        help="Provider CLI to use for Andvari steps (default: codex)",
     )
     parser.add_argument(
         "--pull-policy",
@@ -215,6 +220,7 @@ def _run_command(args: argparse.Namespace) -> int:
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
         provider=args.provider,
+        claude_home_dir=args.claude_home_dir,
     )
     run_pipeline_manifest_path(args.pipeline_manifest, runtime)
     return 0
@@ -230,6 +236,7 @@ def _resume_command(args: argparse.Namespace) -> int:
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
         provider=args.provider,
+        claude_home_dir=args.claude_home_dir,
     )
     resume_run_root(args.run_dir, runtime)
     return 0
@@ -251,6 +258,7 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
         provider=args.provider,
+        claude_home_dir=args.claude_home_dir,
     )
     _preflight_provider_smoke(runtime, output_dir)
     if runtime.verbose:

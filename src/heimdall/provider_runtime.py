@@ -18,14 +18,20 @@ _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _MINIMAL_ANDVARI_CODEX_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
 _MINIMAL_ANDVARI_CLAUDE_SEED_RELPATHS = ("credentials.json", "settings.json")
 
-_CODEX_CONTAINER_SEED_PATH = "/opt/provider-seed/codex-home"
-_CLAUDE_CONTAINER_SEED_PATH = "/opt/provider-seed/claude-home"
+CODEX_CONTAINER_SEED_PATH = "/opt/provider-seed/codex-home"
+CLAUDE_CONTAINER_SEED_PATH = "/opt/provider-seed/claude-home"
+
+
+def andvari_home_dir(runtime: RuntimeConfig) -> Path:
+    if runtime.provider == "claude" and runtime.claude_home_dir is not None:
+        return runtime.claude_home_dir
+    return runtime.codex_home_dir
 
 
 def provider_seed_container_path(runtime: RuntimeConfig) -> str:
     if runtime.provider == "claude":
-        return _CLAUDE_CONTAINER_SEED_PATH
-    return _CODEX_CONTAINER_SEED_PATH
+        return CLAUDE_CONTAINER_SEED_PATH
+    return CODEX_CONTAINER_SEED_PATH
 
 
 def andvari_network_name(runtime: RuntimeConfig) -> str | None:

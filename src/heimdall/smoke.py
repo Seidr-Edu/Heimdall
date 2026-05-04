@@ -21,6 +21,8 @@ from heimdall.andvari_proxy import (
 from heimdall.images import DockerError, resolve_image, run_container
 from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
+    CODEX_CONTAINER_SEED_PATH,
+    andvari_home_dir,
     docker_network_for_step,
     env_for_step,
     provider_seed_container_path,
@@ -144,7 +146,7 @@ def _host_info(runtime: RuntimeConfig) -> HostInfo:
         "provider": runtime.provider,
         "provider_host_bin_dir": str(runtime.codex_host_bin_dir),
         "provider_container_bin_dir": str(runtime.codex_bin_dir),
-        "provider_home_dir": str(runtime.codex_home_dir),
+        "provider_home_dir": str(andvari_home_dir(runtime)),
         "host_provider_executable": str(host_executable),
         "host_provider_binary_format": host_binary_format,
         "container_provider_executable": str(container_executable),
@@ -180,9 +182,16 @@ def _run_service_probe(
     provider_bin_dir = service_root / "input" / "provider-bin"
     provider_seed_dir = service_root / "input" / "provider-seed"
     probe_input_dir = service_root / "input" / "probe-input"
-    provider_home_subdir = (
-        "claude-home" if runtime.provider == "claude" else "codex-home"
-    )
+    if service == "kvasir":
+        _service_home_dir = runtime.codex_home_dir
+        _seed_container_path = CODEX_CONTAINER_SEED_PATH
+        provider_home_subdir = "codex-home"
+    else:
+        _service_home_dir = andvari_home_dir(runtime)
+        _seed_container_path = provider_seed_container_path(runtime)
+        provider_home_subdir = (
+            "claude-home" if runtime.provider == "claude" else "codex-home"
+        )
     runtime_provider_home = run_dir / "provider-state" / provider_home_subdir
     proxy_log_artifact_path = (
         smoke_proxy_access_artifact_path(services_dir.parent, service)
@@ -238,10 +247,10 @@ def _run_service_probe(
             "detail": detail,
         }
 
-    stage_conflict = _stage_conflict(runtime.codex_home_dir, provider_seed_dir)
+    stage_conflict = _stage_conflict(_service_home_dir, provider_seed_dir)
     if stage_conflict is not None:
         detail = (
-            f"Refusing to stage provider home dir {runtime.codex_home_dir} into "
+            f"Refusing to stage provider home dir {_service_home_dir} into "
             f"{provider_seed_dir}: {stage_conflict}"
         )
         write_text(log_path, f"{detail}\n")
@@ -277,7 +286,7 @@ def _run_service_probe(
         }
 
     try:
-        stage_provider_seed(service, runtime.codex_home_dir, provider_seed_dir, runtime)
+        stage_provider_seed(service, _service_home_dir, provider_seed_dir, runtime)
     except RuntimeError as exc:
         detail = str(exc)
         write_text(log_path, f"{detail}\n")
@@ -317,7 +326,7 @@ def _run_service_probe(
             container_env,
             [
                 (provider_bin_dir, "/opt/provider/bin", True),
-                (provider_seed_dir, provider_seed_container_path(runtime), True),
+                (provider_seed_dir, _seed_container_path, True),
                 (probe_input_dir, "/input", True),
                 (run_dir, "/run", False),
             ],

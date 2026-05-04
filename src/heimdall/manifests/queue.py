@@ -151,6 +151,7 @@ def _parse_worker_config_mapping(
             "codex_bin_dir",
             "codex_host_bin_dir",
             "codex_home_dir",
+            "claude_home_dir",
             "provider",
             "pull_policy",
             "verbose",
@@ -191,6 +192,9 @@ def _parse_worker_config_mapping(
         ),
         codex_home_dir=_resolve_path(
             pipeline_mod._require_str(data, "codex_home_dir", "root"), base_dir
+        ),
+        claude_home_dir=_optional_resolve_path(
+            pipeline_mod._optional_str(data, "claude_home_dir", "root"), base_dir
         ),
         pull_policy=cast(PullPolicy, pull_policy),
         verbose=pipeline_mod._optional_bool(data, "verbose", "root", False),
