@@ -44,6 +44,7 @@ from heimdall.models import (
     StepPrepared,
     StepStatus,
 )
+from heimdall.provider_runtime import provider_seed_container_path
 from heimdall.reporting import load_report
 from heimdall.simpleyaml import dumps
 from heimdall.utils import ensure_directory, write_text
@@ -260,7 +261,11 @@ def prepare_step(
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(provider_bin_dir, "/opt/provider/bin", True),
-            DockerMount(provider_seed_dir, "/opt/provider-seed/codex-home", True),
+            DockerMount(
+                provider_seed_dir,
+                provider_seed_container_path(context.runtime),
+                True,
+            ),
         )
         image_ref = context.config.images.andvari
         resolved_image_id = context.resolved_images.andvari
@@ -296,7 +301,11 @@ def prepare_step(
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(provider_bin_dir, "/opt/provider/bin", True),
-            DockerMount(provider_seed_dir, "/opt/provider-seed/codex-home", True),
+            DockerMount(
+                provider_seed_dir,
+                provider_seed_container_path(context.runtime),
+                True,
+            ),
         )
         image_ref = context.config.images.kvasir
         resolved_image_id = context.resolved_images.kvasir

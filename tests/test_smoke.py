@@ -300,7 +300,7 @@ enabled = true
         self.assertEqual(summary["status"], "failed")
         self.assertEqual(
             summary["services"]["andvari"]["reason"],
-            "codex-binary-incompatible-with-container",
+            "provider-binary-incompatible-with-container",
         )
         self.assertIn(
             "Exec format error",
@@ -339,7 +339,7 @@ enabled = true
         )
         self.assertEqual(
             summary["services"]["andvari"]["reason"],
-            "codex-exec-workspace-access-failed",
+            "provider-exec-workspace-access-failed",
         )
         self.assertIn(
             "sandbox denied access to /input/smoke.txt",
@@ -548,7 +548,7 @@ enabled = true
         )
         self.assertEqual(
             summary["services"]["andvari"]["reason"],
-            "codex-exec-workspace-access-failed",
+            "provider-exec-workspace-access-failed",
         )
         self.assertIn(
             "did not create /run/workspace/smoke-result.txt",
@@ -581,11 +581,11 @@ enabled = true
         )
         self.assertEqual(summary["services"]["andvari"]["status"], "passed")
         self.assertEqual(
-            summary["host"]["host_codex_executable"],
+            summary["host"]["host_provider_executable"],
             str((self.bin_dir / "codex").resolve()),
         )
         self.assertEqual(
-            summary["host"]["container_codex_executable"],
+            summary["host"]["container_provider_executable"],
             str((container_bin_dir / "codex").resolve()),
         )
 
@@ -648,7 +648,7 @@ enabled = true
 
         with (
             mock.patch("heimdall.cli.ensure_docker_available"),
-            mock.patch("heimdall.cli._check_codex_login"),
+            mock.patch("heimdall.cli._check_provider_login"),
             mock.patch.dict(
                 os.environ,
                 {"HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH": str(proxy_access_log)},

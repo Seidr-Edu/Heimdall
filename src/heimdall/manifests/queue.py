@@ -11,6 +11,7 @@ from heimdall.models import (
     KvasirConfig,
     LidskjalvConfig,
     LidskjalvTargetConfig,
+    Provider,
     PullPolicy,
     QueueRequest,
     WorkerConfig,
@@ -146,6 +147,7 @@ def _parse_worker_config_mapping(
             "codex_bin_dir",
             "codex_host_bin_dir",
             "codex_home_dir",
+            "provider",
             "pull_policy",
             "verbose",
             "andvari_internal_network_name",
@@ -166,6 +168,12 @@ def _parse_worker_config_mapping(
         raise ManifestValidationError(
             "root.pull_policy must be one of: if-missing, always, never"
         )
+    provider_raw = pipeline_mod._optional_str(data, "provider", "root") or "codex"
+    if provider_raw not in {"codex", "claude"}:
+        raise ManifestValidationError(
+            "root.provider must be one of: codex, claude"
+        )
+    provider = cast(Provider, provider_raw)
     return WorkerConfig(
         queue_root=_resolve_path(
             pipeline_mod._require_str(data, "queue_root", "root"), base_dir
@@ -202,6 +210,7 @@ def _parse_worker_config_mapping(
         andvari_internal_network_name=pipeline_mod._require_str(
             data, "andvari_internal_network_name", "root"
         ),
+        provider=provider,
     )
 
 

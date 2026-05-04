@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from collections.abc import Mapping
@@ -13,7 +14,18 @@ from heimdall.utils import stage_readable_paths, stage_readable_tree, write_text
 
 _GITHUB_PLUGIN_NAME = "github@openai-curated"
 _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-_MINIMAL_ANDVARI_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
+
+_MINIMAL_ANDVARI_CODEX_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
+_MINIMAL_ANDVARI_CLAUDE_SEED_RELPATHS = ("credentials.json", "settings.json")
+
+_CODEX_CONTAINER_SEED_PATH = "/opt/provider-seed/codex-home"
+_CLAUDE_CONTAINER_SEED_PATH = "/opt/provider-seed/claude-home"
+
+
+def provider_seed_container_path(runtime: RuntimeConfig) -> str:
+    if runtime.provider == "claude":
+        return _CLAUDE_CONTAINER_SEED_PATH
+    return _CODEX_CONTAINER_SEED_PATH
 
 
 def andvari_network_name(runtime: RuntimeConfig) -> str | None:
@@ -34,19 +46,55 @@ def env_for_step(step: str, runtime: RuntimeConfig) -> dict[str, str]:
 
 def stage_provider_seed(
     service_name: str,
-    source_codex_home: Path,
+    source_home: Path,
     destination_seed: Path,
     runtime: RuntimeConfig,
 ) -> None:
     if uses_andvari_proxy_runtime(service_name):
-        stage_readable_paths(
-            source_codex_home,
-            destination_seed,
-            _MINIMAL_ANDVARI_SEED_RELPATHS,
-        )
-        sanitize_andvari_codex_seed(service_name, destination_seed)
+        if runtime.provider == "claude":
+            stage_readable_paths(
+                source_home,
+                destination_seed,
+                _MINIMAL_ANDVARI_CLAUDE_SEED_RELPATHS,
+            )
+            sanitize_andvari_claude_seed(service_name, destination_seed)
+        else:
+            stage_readable_paths(
+                source_home,
+                destination_seed,
+                _MINIMAL_ANDVARI_CODEX_SEED_RELPATHS,
+            )
+            sanitize_andvari_codex_seed(service_name, destination_seed)
         return
-    stage_readable_tree(source_codex_home, destination_seed)
+    stage_readable_tree(source_home, destination_seed)
+
+
+def sanitize_andvari_claude_seed(
+    service_name: str,
+    staged_claude_home: Path,
+) -> None:
+    if not uses_andvari_proxy_runtime(service_name):
+        return
+    settings_path = staged_claude_home / "settings.json"
+    if not settings_path.is_file():
+        return
+    try:
+        payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Failed to read staged Claude settings {settings_path}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        return
+    payload.pop("mcpServers", None)
+    try:
+        settings_path.write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"Failed to write staged Claude settings {settings_path}: {exc}"
+        ) from exc
 
 
 def sanitize_andvari_codex_seed(

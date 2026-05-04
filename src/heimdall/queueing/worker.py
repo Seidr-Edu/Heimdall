@@ -425,6 +425,7 @@ def _runtime_from_worker_config(worker_config: WorkerConfig) -> RuntimeConfig:
         worker_config.pull_policy,
         worker_config.verbose,
         andvari_internal_network_name=worker_config.andvari_internal_network_name,
+        provider=worker_config.provider,
     )
 
 
