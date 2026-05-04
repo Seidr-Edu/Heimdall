@@ -9,7 +9,7 @@ from pathlib import Path
 from heimdall.models import STEP_ANDVARI, STEP_ANDVARI_V2, STEP_ANDVARI_V3
 
 ANDVARI_PROXY_STEPS = frozenset(
-    {STEP_ANDVARI, STEP_ANDVARI_V2, STEP_ANDVARI_V3, "andvari"}
+    {STEP_ANDVARI, STEP_ANDVARI_V2, STEP_ANDVARI_V3}
 )
 DEFAULT_ANDVARI_PROXY_ACCESS_LOG_PATH = Path("/var/log/squid/andvari-access.jsonl")
 DEFAULT_ANDVARI_BLOCKED_EGRESS_LOG_PATH = Path("/var/log/andvari/blocked-egress.jsonl")
