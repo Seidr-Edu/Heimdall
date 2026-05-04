@@ -6,14 +6,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from heimdall.andvari_proxy import (
+    pipeline_blocked_egress_artifact_path,
+    pipeline_proxy_access_artifact_path,
+)
 from heimdall.manifests.services import (
     build_step_manifest_payload,
     build_step_runtime_hints,
     mimir_snapshot_sources,
-)
-from heimdall.andvari_proxy import (
-    pipeline_blocked_egress_artifact_path,
-    pipeline_proxy_access_artifact_path,
 )
 from heimdall.models import (
     ALL_STEPS,
