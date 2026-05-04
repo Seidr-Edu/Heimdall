@@ -10,6 +10,9 @@ from heimdall.simpleyaml import dumps
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKES_DIR = REPO_ROOT / "tests" / "fakes"
+DEFAULT_ANDVARI_NETWORK_NAME = "andvari-egress"
+_PROXY_ACCESS_LOG_ENV = "HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH"
+_BLOCKED_EGRESS_LOG_ENV = "HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH"
 
 
 def make_temp_dir(prefix: str) -> Path:
@@ -93,9 +96,7 @@ def build_worker_config(
     codex_host_bin_dir: Path | None = None,
     skip_sonar: bool = True,
     verbose: bool = False,
-    andvari_github_block_enabled: bool = False,
-    andvari_internal_network_name: str | None = None,
-    andvari_proxy_url: str | None = None,
+    andvari_internal_network_name: str = DEFAULT_ANDVARI_NETWORK_NAME,
 ) -> str:
     document: dict[str, object] = {
         "version": 1,
@@ -105,6 +106,7 @@ def build_worker_config(
         "codex_home_dir": str(codex_home_dir),
         "pull_policy": "if-missing",
         "verbose": verbose,
+        "andvari_internal_network_name": andvari_internal_network_name,
         "images": {
             "brokk": "fake/brokk:1",
             "eitri": "fake/eitri:1",
@@ -150,12 +152,6 @@ def build_worker_config(
     }
     if codex_host_bin_dir is not None:
         document["codex_host_bin_dir"] = str(codex_host_bin_dir)
-    if andvari_github_block_enabled:
-        document["andvari_github_block_enabled"] = True
-    if andvari_internal_network_name is not None:
-        document["andvari_internal_network_name"] = andvari_internal_network_name
-    if andvari_proxy_url is not None:
-        document["andvari_proxy_url"] = andvari_proxy_url
     return dumps(document)
 
 
@@ -224,9 +220,26 @@ def fake_env(
     )
     env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
     env["FAKE_DOCKER_STATE"] = str(state_path)
+    proxy_access_log = state_path.parent / "andvari-access.jsonl"
+    proxy_access_log.parent.mkdir(parents=True, exist_ok=True)
+    proxy_access_log.touch(exist_ok=True)
+    env[_PROXY_ACCESS_LOG_ENV] = str(proxy_access_log)
+    blocked_egress_log = state_path.parent / "blocked-egress.jsonl"
+    blocked_egress_log.parent.mkdir(parents=True, exist_ok=True)
+    blocked_egress_log.touch(exist_ok=True)
+    env[_BLOCKED_EGRESS_LOG_ENV] = str(blocked_egress_log)
     if extra:
         env.update(extra)
     return env
+
+
+def with_default_andvari_runtime_args(args: list[str]) -> list[str]:
+    if not args or args[0] not in {"run", "resume", "smoke-provider"}:
+        return list(args)
+    result = list(args)
+    if "--andvari-internal-network-name" not in result:
+        result.extend(["--andvari-internal-network-name", DEFAULT_ANDVARI_NETWORK_NAME])
+    return result
 
 
 def load_fake_state(state_path: Path) -> dict[str, object]:

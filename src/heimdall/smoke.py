@@ -7,12 +7,22 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
+from heimdall.andvari_proxy import (
+    ProxyAccessCapture,
+    ProxyAccessError,
+    begin_blocked_egress_capture,
+    begin_proxy_access_capture,
+    finish_blocked_egress_capture,
+    finish_proxy_access_capture,
+    smoke_blocked_egress_artifact_path,
+    smoke_proxy_access_artifact_path,
+    uses_andvari_proxy_runtime,
+)
 from heimdall.images import DockerError, resolve_image, run_container
 from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
     docker_network_for_step,
     env_for_step,
-    should_block_github_for_service,
     stage_provider_seed,
 )
 from heimdall.utils import (
@@ -54,6 +64,8 @@ class ServiceProbeResult(TypedDict):
     provider_seed_dir: str
     probe_input_dir: str
     runtime_codex_home: str
+    proxy_access_log_path: str | None
+    egress_block_log_path: str | None
 
 
 class SmokeSummary(TypedDict):
@@ -165,6 +177,16 @@ def _run_service_probe(
     provider_seed_dir = service_root / "input" / "provider-seed"
     probe_input_dir = service_root / "input" / "probe-input"
     runtime_codex_home = run_dir / "provider-state" / "codex-home"
+    proxy_log_artifact_path = (
+        smoke_proxy_access_artifact_path(services_dir.parent, service)
+        if uses_andvari_proxy_runtime(service)
+        else None
+    )
+    blocked_egress_artifact_path = (
+        smoke_blocked_egress_artifact_path(services_dir.parent, service)
+        if uses_andvari_proxy_runtime(service)
+        else None
+    )
     log_path = logs_dir / f"{service}.log"
 
     ensure_directory(service_root, 0o755)
@@ -184,6 +206,16 @@ def _run_service_probe(
         "provider_seed_dir": str(provider_seed_dir),
         "probe_input_dir": str(probe_input_dir),
         "runtime_codex_home": str(runtime_codex_home),
+        "proxy_access_log_path": (
+            str(proxy_log_artifact_path)
+            if proxy_log_artifact_path is not None
+            else None
+        ),
+        "egress_block_log_path": (
+            str(blocked_egress_artifact_path)
+            if blocked_egress_artifact_path is not None
+            else None
+        ),
     }
 
     stage_conflict = _stage_conflict(runtime.codex_bin_dir, provider_bin_dir)
@@ -251,9 +283,27 @@ def _run_service_probe(
 
     container_env = {"HEIMDALL_SMOKE_SERVICE": service}
     container_env.update(env_for_step(service, runtime))
-    if should_block_github_for_service(service, runtime):
-        container_env["HEIMDALL_ANDVARI_GITHUB_BLOCK"] = "1"
+    if uses_andvari_proxy_runtime(service):
+        container_env["HEIMDALL_ANDVARI_EGRESS_ENFORCED"] = "1"
+    proxy_capture: ProxyAccessCapture | None = None
+    blocked_egress_capture: ProxyAccessCapture | None = None
+    try:
+        proxy_capture = begin_proxy_access_capture(service, proxy_log_artifact_path)
+        blocked_egress_capture = begin_blocked_egress_capture(
+            service, blocked_egress_artifact_path
+        )
+    except ProxyAccessError as exc:
+        detail = str(exc)
+        write_text(log_path, f"{detail}\n")
+        return {
+            **base_result,
+            "resolved_image_id": resolved_image_id,
+            "reason": exc.reason,
+            "detail": detail,
+            "hint": _proxy_failure_hint(exc.reason),
+        }
 
+    failure_result: ServiceProbeResult | None = None
     try:
         run_container(
             image_ref,
@@ -280,26 +330,45 @@ def _run_service_probe(
         _append_log(log_path, f"\n[heimdall][smoke] classified reason: {reason}\n")
         if hint is not None:
             _append_log(log_path, f"[heimdall][smoke] hint: {hint}\n")
-        return {
+        failure_result = {
             **base_result,
             "resolved_image_id": resolved_image_id,
             "reason": reason,
             "detail": detail,
             "hint": hint,
         }
-
-    if not runtime_codex_home.is_dir():
+    if failure_result is None and not runtime_codex_home.is_dir():
         detail = (
             "Probe finished without creating /run/provider-state/codex-home inside "
             "the service run directory."
         )
         _append_log(log_path, f"\n[heimdall][smoke] {detail}\n")
-        return {
+        failure_result = {
             **base_result,
             "resolved_image_id": resolved_image_id,
             "reason": "runtime-codex-home-not-created",
             "detail": detail,
         }
+    proxy_capture_error = _finalize_proxy_capture(
+        proxy_capture,
+        proxy_log_artifact_path,
+        blocked_egress_capture,
+        blocked_egress_artifact_path,
+        log_path,
+    )
+    if proxy_capture_error is not None:
+        reason = getattr(
+            proxy_capture_error, "reason", "proxy-access-log-capture-failed"
+        )
+        return {
+            **base_result,
+            "resolved_image_id": resolved_image_id,
+            "reason": reason,
+            "detail": str(proxy_capture_error),
+            "hint": _proxy_failure_hint(reason),
+        }
+    if failure_result is not None:
+        return failure_result
 
     return {
         **base_result,
@@ -325,113 +394,23 @@ expect_blocked() {
   local label="$1"
   shift
   if "$@" >/dev/null 2>&1; then
-    echo "[smoke][error] github access unexpectedly succeeded: ${label}" >&2
+    echo "[smoke][error] egress probe unexpectedly succeeded: ${label}" >&2
     exit 1
   fi
-  echo "[smoke] github probe blocked: ${label}"
+  echo "[smoke] egress probe blocked: ${label}"
 }
 
-run_maven_canary() {
-  local workdir=/run/dependency-canaries/maven
-  mkdir -p "${workdir}/src/test/java/smoke"
-  cat > "${workdir}/pom.xml" <<'POM_EOF'
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>heimdall.smoke</groupId>
-  <artifactId>maven-canary</artifactId>
-  <version>1.0.0</version>
-  <properties>
-    <maven.compiler.release>8</maven.compiler.release>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <junit.version>5.10.2</junit.version>
-  </properties>
-  <dependencies>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>${junit.version}</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
-      </plugin>
-    </plugins>
-  </build>
-</project>
-POM_EOF
-  cat > "${workdir}/src/test/java/smoke/MavenCanaryTest.java" <<'JAVA_EOF'
-package smoke;
-
-import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-class MavenCanaryTest {
-    @Test
-    void resolvesDependencies() {
-        assertEquals("maven-canary", "maven-canary");
-    }
-}
-JAVA_EOF
-  if ! mvn -q -B -ntp -f "${workdir}/pom.xml" test; then
-    echo "[smoke][error] maven canary failed" >&2
-    exit 1
+resolve_python() {
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return 0
   fi
-  echo "[smoke] maven canary passed"
-}
-
-run_gradle_canary() {
-  local workdir=/run/dependency-canaries/gradle
-  mkdir -p "${workdir}/src/test/java/smoke"
-  cat > "${workdir}/settings.gradle" <<'SETTINGS_EOF'
-rootProject.name = 'gradle-canary'
-SETTINGS_EOF
-  cat > "${workdir}/build.gradle" <<'GRADLE_EOF'
-plugins {
-    id 'java'
-}
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
-}
-
-sourceCompatibility = JavaVersion.VERSION_1_8
-targetCompatibility = JavaVersion.VERSION_1_8
-
-test {
-    useJUnitPlatform()
-}
-GRADLE_EOF
-  cat > "${workdir}/src/test/java/smoke/GradleCanaryTest.java" <<'JAVA_EOF'
-package smoke;
-
-import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-class GradleCanaryTest {
-    @Test
-    void resolvesDependencies() {
-        assertEquals("gradle-canary", "gradle-canary");
-    }
-}
-JAVA_EOF
-  if ! gradle --no-daemon -q -p "${workdir}" test; then
-    echo "[smoke][error] gradle canary failed" >&2
-    exit 1
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return 0
   fi
-  echo "[smoke] gradle canary passed"
+  echo "[smoke][error] required tool unavailable: python3 or python" >&2
+  exit 1
 }
 
 echo "[smoke] service=${HEIMDALL_SMOKE_SERVICE:-unknown}"
@@ -501,12 +480,62 @@ if [[ -f "${workspace_dir}/last-message.txt" ]]; then
   cat "${workspace_dir}/last-message.txt"
 fi
 echo "[smoke] codex exec workspace probe passed"
-if [[ "${HEIMDALL_ANDVARI_GITHUB_BLOCK:-0}" == "1" ]]; then
-  echo "[smoke] Andvari GitHub blocking probes enabled"
+if [[ "${HEIMDALL_ANDVARI_EGRESS_ENFORCED:-0}" == "1" ]]; then
+  echo "[smoke] Andvari egress probes enabled"
   require_tool curl
   require_tool git
   require_tool mvn
   require_tool gradle
+  python_bin="$(resolve_python)"
+  curl -fsS --max-time 15 https://example.com >/dev/null
+  echo "[smoke] egress probe allowed: https://example.com"
+  maven_smoke_dir=/run/maven-smoke
+  mkdir -p "${maven_smoke_dir}"
+  cat > "${maven_smoke_dir}/pom.xml" <<'MAVEN_POM_EOF'
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>heimdall.smoke</groupId>
+  <artifactId>maven-smoke</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+    </dependency>
+  </dependencies>
+</project>
+MAVEN_POM_EOF
+  mvn -q -B -Dmaven.repo.local=/run/.m2 -f "${maven_smoke_dir}/pom.xml" dependency:go-offline >/dev/null
+  echo "[smoke] egress probe allowed: maven dependency resolution"
+  gradle_smoke_dir=/run/gradle-smoke
+  mkdir -p "${gradle_smoke_dir}"
+  cat > "${gradle_smoke_dir}/settings.gradle" <<'GRADLE_SETTINGS_EOF'
+rootProject.name = 'heimdall-smoke'
+GRADLE_SETTINGS_EOF
+  cat > "${gradle_smoke_dir}/build.gradle" <<'GRADLE_BUILD_EOF'
+configurations {
+  smoke
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  smoke 'junit:junit:4.13.2'
+}
+
+task resolveSmoke {
+  doLast {
+    configurations.smoke.files.each { println it.name }
+  }
+}
+GRADLE_BUILD_EOF
+  GRADLE_USER_HOME=/run/.gradle gradle -q --no-daemon -p "${gradle_smoke_dir}" resolveSmoke >/dev/null
+  echo "[smoke] egress probe allowed: gradle dependency resolution"
   expect_blocked "https://github.com" curl -fsS --max-time 15 https://github.com
   expect_blocked "https://api.github.com" curl -fsS --max-time 15 https://api.github.com
   expect_blocked \
@@ -515,8 +544,9 @@ if [[ "${HEIMDALL_ANDVARI_GITHUB_BLOCK:-0}" == "1" ]]; then
   expect_blocked \
     "git ls-remote https://github.com/octocat/Hello-World.git" \
     git ls-remote https://github.com/octocat/Hello-World.git HEAD
-  run_maven_canary
-  run_gradle_canary
+  expect_blocked \
+    "python raw tcp github.com:22" \
+    "${python_bin}" -c "import socket; socket.create_connection(('github.com', 22), timeout=10).close()"
 fi
 echo "[smoke] provider smoke passed"
 """.strip()
@@ -528,7 +558,7 @@ def _classify_probe_failure(detail: str) -> str:
         return "codex-binary-incompatible-with-container"
     if "command failed: command -v codex" in lowered or "codex: not found" in lowered:
         return "codex-cli-unavailable-in-container"
-    if "login status" in lowered or "not logged in" in lowered:
+    if "command failed: codex login status" in lowered or "not logged in" in lowered:
         return "codex-auth-unusable-in-container"
     if (
         "codex exec did not create /run/workspace/smoke-result.txt" in lowered
@@ -544,12 +574,11 @@ def _classify_probe_failure(detail: str) -> str:
     if "permission denied" in lowered and "provider/bin" in lowered:
         return "provider-bin-unreadable-in-container"
     if (
-        "github access unexpectedly succeeded" in lowered
+        "proxy probe unexpectedly succeeded" in lowered
+        or "egress probe unexpectedly succeeded" in lowered
         or "required tool unavailable" in lowered
     ):
-        return "github-block-probe-failed"
-    if "maven canary failed" in lowered or "gradle canary failed" in lowered:
-        return "dependency-canary-failed"
+        return "andvari-proxy-probe-failed"
     if "command failed: codex exec" in lowered:
         return "codex-exec-failed"
     return "probe-command-failed"
@@ -569,7 +598,7 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
                 return lines[index]
     if reason == "codex-auth-unusable-in-container":
         for index, line in enumerate(lowered):
-            if "not logged in" in line or "login status" in line:
+            if "not logged in" in line or "command failed: codex login status" in line:
                 return lines[index]
     if reason == "codex-exec-workspace-access-failed":
         for index, line in enumerate(lowered):
@@ -586,16 +615,13 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
         for index, line in enumerate(lowered):
             if "command failed: codex exec" in line:
                 return lines[index]
-    if reason == "github-block-probe-failed":
+    if reason == "andvari-proxy-probe-failed":
         for index, line in enumerate(lowered):
             if (
-                "github access unexpectedly succeeded" in line
+                "proxy probe unexpectedly succeeded" in line
+                or "egress probe unexpectedly succeeded" in line
                 or "required tool unavailable" in line
             ):
-                return lines[index]
-    if reason == "dependency-canary-failed":
-        for index, line in enumerate(lowered):
-            if "maven canary failed" in line or "gradle canary failed" in line:
                 return lines[index]
     for line in reversed(lines):
         if line.startswith("[smoke][error]"):
@@ -640,20 +666,66 @@ def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
             "codex exec started inside the container, but the smoke task did not "
             "complete. Inspect the per-service log for the exact stderr/stdout."
         )
-    if reason == "github-block-probe-failed":
+    if reason == "andvari-proxy-probe-failed":
         return (
-            "The Andvari smoke did not prove the GitHub block. Confirm the Andvari "
-            "container is on the restricted Docker network, the proxy env vars are "
-            "present, and the proxy denylist covers GitHub web, API, raw, and asset "
-            "hosts."
-        )
-    if reason == "dependency-canary-failed":
-        return (
-            "The GitHub block was enabled, but Maven or Gradle could not complete a "
-            "normal dependency-resolution canary. Check the proxy allowlist and the "
-            "toolchain available inside the Andvari container."
+            "The Andvari smoke did not prove restricted egress. Confirm the Andvari "
+            "container is on the restricted Docker network, allowed HTTPS and Maven/"
+            "Gradle traffic work, GitHub HTTPS is denied, and raw bypasses like "
+            "direct TCP to github.com:22 are blocked."
         )
     return None
+
+
+def _proxy_failure_hint(reason: str) -> str:
+    if reason == "proxy-runtime-unavailable":
+        return (
+            "Heimdall could not read one of the host egress log sources. Confirm "
+            "/var/log/squid/andvari-access.jsonl and "
+            "/var/log/andvari/blocked-egress.jsonl exist and are readable by the "
+            "worker."
+        )
+    if reason == "proxy-access-log-preflight-failed":
+        return (
+            "Heimdall could not prepare a writable host-owned destination for the "
+            "captured proxy slice. Confirm the smoke output artifact directory is "
+            "host-owned and writable by the worker."
+        )
+    return (
+        "Heimdall could not preserve one of the Andvari host egress log slices. "
+        "Confirm both host log sources exist, are readable by the worker, stay "
+        "stable during the probe, and the destination artifact paths remain "
+        "writable."
+    )
+
+
+def _finalize_proxy_capture(
+    capture: ProxyAccessCapture | None,
+    destination: Path | None,
+    blocked_egress_capture: ProxyAccessCapture | None,
+    blocked_egress_destination: Path | None,
+    log_path: Path,
+) -> RuntimeError | None:
+    first_error = None
+    try:
+        if capture is not None and destination is not None:
+            finish_proxy_access_capture(capture, destination)
+    except ProxyAccessError as exc:
+        _append_log(log_path, f"\n[heimdall][smoke] {exc}\n")
+        first_error = exc
+    try:
+        if (
+            blocked_egress_capture is not None
+            and blocked_egress_destination is not None
+        ):
+            finish_blocked_egress_capture(
+                blocked_egress_capture,
+                blocked_egress_destination,
+            )
+    except ProxyAccessError as exc:
+        _append_log(log_path, f"\n[heimdall][smoke] {exc}\n")
+        if first_error is None:
+            first_error = exc
+    return first_error
 
 
 def _write_probe_input(path: Path) -> None:
@@ -744,6 +816,12 @@ def _render_summary(summary: SmokeSummary) -> str:
                 f"- Log: `{result['log_path']}`",
             ]
         )
+        proxy_access_log = result.get("proxy_access_log_path")
+        if proxy_access_log is not None:
+            lines.append(f"- Proxy access log: `{proxy_access_log}`")
+        egress_block_log = result.get("egress_block_log_path")
+        if egress_block_log is not None:
+            lines.append(f"- Blocked egress log: `{egress_block_log}`")
         detail = result.get("detail")
         if detail is not None:
             lines.append(f"- Detail: {detail}")

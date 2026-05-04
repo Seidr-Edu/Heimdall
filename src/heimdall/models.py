@@ -142,9 +142,7 @@ class RuntimeConfig:
     sonar_token_present: bool
     sonar_organization: str | None
     verbose: bool = False
-    andvari_github_block_enabled: bool = False
-    andvari_internal_network_name: str | None = None
-    andvari_proxy_url: str | None = None
+    andvari_internal_network_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -161,9 +159,7 @@ class WorkerConfig:
     andvari: AndvariConfig
     kvasir: KvasirConfig
     lidskjalv: LidskjalvConfig
-    andvari_github_block_enabled: bool = False
-    andvari_internal_network_name: str | None = None
-    andvari_proxy_url: str | None = None
+    andvari_internal_network_name: str = ""
 
 
 @dataclass(frozen=True)

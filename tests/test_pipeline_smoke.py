@@ -13,6 +13,7 @@ from tests.helpers import (
     fake_env,
     install_fake_tools,
     load_fake_state,
+    with_default_andvari_runtime_args,
     write_file,
 )
 
@@ -256,6 +257,41 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 / "README.md"
             ).is_file()
         )
+        for service_dir in ("andvari", "andvari-v2", "andvari-v3"):
+            self.assertTrue(
+                (
+                    run_root
+                    / "pipeline"
+                    / "artifacts"
+                    / "proxy_access"
+                    / f"{service_dir}.jsonl"
+                ).is_file()
+            )
+            self.assertTrue(
+                (
+                    run_root
+                    / "pipeline"
+                    / "artifacts"
+                    / "egress_block"
+                    / f"{service_dir}.jsonl"
+                ).is_file()
+            )
+        self.assertEqual(
+            Path(
+                artifact_index["artifacts"]["andvari_proxy_access_log"]["path"]
+            ).resolve(),
+            (
+                run_root / "pipeline" / "artifacts" / "proxy_access" / "andvari.jsonl"
+            ).resolve(),
+        )
+        self.assertEqual(
+            Path(
+                artifact_index["artifacts"]["andvari_egress_block_log"]["path"]
+            ).resolve(),
+            (
+                run_root / "pipeline" / "artifacts" / "egress_block" / "andvari.jsonl"
+            ).resolve(),
+        )
         self.assertTrue(
             (
                 run_root / "services" / "kvasir" / "run" / "outputs" / "test_port.json"
@@ -289,6 +325,12 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
                 "andvari_logs",
                 "andvari_logs_v2",
                 "andvari_logs_v3",
+                "andvari_egress_block_log",
+                "andvari_egress_block_log_v2",
+                "andvari_egress_block_log_v3",
+                "andvari_proxy_access_log",
+                "andvari_proxy_access_log_v2",
+                "andvari_proxy_access_log_v3",
                 "andvari_report_dir",
                 "andvari_report_dir_v2",
                 "andvari_report_dir_v3",
@@ -430,7 +472,12 @@ class PipelineSmokeIntegrationTest(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = fake_env(self.bin_dir, self.state_path, extra=extra_env)
         return subprocess.run(
-            [sys.executable, "-m", "heimdall.cli", *args],
+            [
+                sys.executable,
+                "-m",
+                "heimdall.cli",
+                *with_default_andvari_runtime_args(args),
+            ],
             check=False,
             capture_output=True,
             text=True,
