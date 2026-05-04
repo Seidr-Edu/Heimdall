@@ -13,8 +13,8 @@ from heimdall.andvari_proxy import (
     begin_blocked_egress_capture,
     begin_proxy_access_capture,
     finish_blocked_egress_capture,
-    smoke_blocked_egress_artifact_path,
     finish_proxy_access_capture,
+    smoke_blocked_egress_artifact_path,
     smoke_proxy_access_artifact_path,
     uses_andvari_proxy_runtime,
 )

@@ -15,10 +15,10 @@ from heimdall.andvari_proxy import (
     begin_blocked_egress_capture,
     begin_proxy_access_capture,
     finish_blocked_egress_capture,
-    pipeline_blocked_egress_artifact_path,
     finish_proxy_access_capture,
-    smoke_blocked_egress_artifact_path,
+    pipeline_blocked_egress_artifact_path,
     pipeline_proxy_access_artifact_path,
+    smoke_blocked_egress_artifact_path,
     smoke_proxy_access_artifact_path,
 )
 
@@ -79,9 +79,8 @@ class AndvariProxyHelperTest(unittest.TestCase):
             os.environ,
             {"HEIMDALL_ANDVARI_PROXY_ACCESS_LOG_PATH": str(missing_log)},
             clear=False,
-        ):
-            with self.assertRaises(ProxyAccessError) as raised:
-                begin_proxy_access_capture(
+        ), self.assertRaises(ProxyAccessError) as raised:
+            begin_proxy_access_capture(
                     "andvari",
                     self.root
                     / "pipeline"
@@ -98,9 +97,8 @@ class AndvariProxyHelperTest(unittest.TestCase):
             os.environ,
             {"HEIMDALL_ANDVARI_BLOCKED_EGRESS_LOG_PATH": str(missing_log)},
             clear=False,
-        ):
-            with self.assertRaises(ProxyAccessError) as raised:
-                begin_blocked_egress_capture(
+        ), self.assertRaises(ProxyAccessError) as raised:
+            begin_blocked_egress_capture(
                     "andvari",
                     self.root
                     / "pipeline"
@@ -120,9 +118,8 @@ class AndvariProxyHelperTest(unittest.TestCase):
         with mock.patch(
             "heimdall.andvari_proxy.tempfile.mkstemp",
             side_effect=PermissionError("simulated create denial"),
-        ):
-            with self.assertRaises(ProxyAccessError) as raised:
-                begin_proxy_access_capture("andvari", destination)
+        ), self.assertRaises(ProxyAccessError) as raised:
+            begin_proxy_access_capture("andvari", destination)
         self.assertEqual(raised.exception.reason, PROXY_ACCESS_LOG_PREFLIGHT_FAILED)
         self.assertIn("Failed to verify write access", str(raised.exception))
 
@@ -141,9 +138,8 @@ class AndvariProxyHelperTest(unittest.TestCase):
         with mock.patch(
             "heimdall.andvari_proxy.os.replace",
             side_effect=PermissionError("simulated replace denial"),
-        ):
-            with self.assertRaises(ProxyAccessError) as raised:
-                finish_proxy_access_capture(capture, destination)
+        ), self.assertRaises(ProxyAccessError) as raised:
+            finish_proxy_access_capture(capture, destination)
         self.assertEqual(raised.exception.reason, PROXY_ACCESS_LOG_CAPTURE_FAILED)
         self.assertIn(
             "Failed to write Andvari proxy access artifact", str(raised.exception)
@@ -164,9 +160,8 @@ class AndvariProxyHelperTest(unittest.TestCase):
         with mock.patch(
             "heimdall.andvari_proxy.os.replace",
             side_effect=PermissionError("simulated replace denial"),
-        ):
-            with self.assertRaises(ProxyAccessError) as raised:
-                finish_blocked_egress_capture(capture, destination)
+        ), self.assertRaises(ProxyAccessError) as raised:
+            finish_blocked_egress_capture(capture, destination)
         self.assertEqual(raised.exception.reason, PROXY_ACCESS_LOG_CAPTURE_FAILED)
         self.assertIn(
             "Failed to write Andvari blocked egress artifact",

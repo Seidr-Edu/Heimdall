@@ -12,8 +12,8 @@ from pathlib import Path
 from unittest import mock
 
 from heimdall.cli import _preflight_provider_smoke
-from heimdall.smoke import _provider_probe_script
 from heimdall.models import RuntimeConfig
+from heimdall.smoke import _provider_probe_script
 from tests.helpers import (
     build_pipeline_manifest,
     fake_env,
