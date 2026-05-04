@@ -22,7 +22,13 @@ from heimdall.manifests.queue import (
     dump_queue_request,
     load_queue_request,
 )
-from heimdall.models import JobStatus, QueueRequest, RuntimeConfig, WorkerConfig
+from heimdall.models import (
+    JobStatus,
+    Provider,
+    QueueRequest,
+    RuntimeConfig,
+    WorkerConfig,
+)
 from heimdall.simpleyaml import YamlError, dumps, loads
 from heimdall.sonar_follow_up import sonar_follow_up_path
 from heimdall.utils import (
@@ -214,7 +220,7 @@ def _run_pending_job(worker_config: WorkerConfig, job_id: str) -> None:
         worker_config, request, run_id=str(job["run_id"])
     )
     write_text(_pipeline_manifest_path(worker_config, job_id), manifest_text)
-    runtime = _runtime_from_worker_config(worker_config)
+    runtime = _runtime_from_worker_config(worker_config, provider=request.provider)
     try:
         run_root, _config = run_pipeline_manifest_path(
             _pipeline_manifest_path(worker_config, job_id), runtime
@@ -232,7 +238,8 @@ def _reconcile_running_job(worker_config: WorkerConfig, job_id: str) -> None:
     if run_dir is None:
         _finalize_job_error(worker_config, job_id, "missing_run_dir")
         return
-    runtime = _runtime_from_worker_config(worker_config)
+    request = load_queue_request(_request_path(worker_config, job_id))
+    runtime = _runtime_from_worker_config(worker_config, provider=request.provider)
     report_path = run_dir / "pipeline" / "outputs" / "run_report.json"
     if report_path.is_file():
         _finalize_job_from_run_root(worker_config, job_id, run_dir)
@@ -416,7 +423,9 @@ def _load_yaml_mapping(path: Path, label: str) -> dict[str, object]:
     return dict(loaded)
 
 
-def _runtime_from_worker_config(worker_config: WorkerConfig) -> RuntimeConfig:
+def _runtime_from_worker_config(
+    worker_config: WorkerConfig, *, provider: Provider | None = None
+) -> RuntimeConfig:
     return build_runtime(
         worker_config.runs_root,
         worker_config.codex_bin_dir,
@@ -425,7 +434,7 @@ def _runtime_from_worker_config(worker_config: WorkerConfig) -> RuntimeConfig:
         worker_config.pull_policy,
         worker_config.verbose,
         andvari_internal_network_name=worker_config.andvari_internal_network_name,
-        provider=worker_config.provider,
+        provider=provider if provider is not None else worker_config.provider,
     )
 
 

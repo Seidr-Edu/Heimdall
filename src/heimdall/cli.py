@@ -146,6 +146,12 @@ def _build_parser() -> argparse.ArgumentParser:
     submit_parser.add_argument("--repo-url", required=True)
     submit_parser.add_argument("--commit-sha", required=True)
     submit_parser.add_argument("--overrides", type=Path)
+    submit_parser.add_argument(
+        "--provider",
+        choices=("codex", "claude"),
+        default="codex",
+        help="Provider CLI to use for Andvari steps (default: codex)",
+    )
 
     status_parser = subparsers.add_parser(
         "status", help="Show the queue and pipeline status for one job"
@@ -297,6 +303,7 @@ def _submit_command(args: argparse.Namespace) -> int:
         args.repo_url,
         args.commit_sha,
         args.overrides,
+        provider=args.provider,
     )
     completed = submit_remote(
         remote,

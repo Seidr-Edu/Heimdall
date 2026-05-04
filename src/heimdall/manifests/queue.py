@@ -51,6 +51,7 @@ def queue_request_to_document(request: QueueRequest) -> dict[str, object]:
         "version": request.version,
         "repo_url": request.repo_url,
         "commit_sha": request.commit_sha,
+        "provider": request.provider,
     }
     if request.eitri:
         document["eitri"] = request.eitri
@@ -67,10 +68,13 @@ def request_from_submit_args(
     repo_url: str,
     commit_sha: str,
     overrides_path: Path | None,
+    *,
+    provider: Provider = "codex",
 ) -> QueueRequest:
     document: dict[str, object] = {
         "repo_url": repo_url,
         "commit_sha": commit_sha,
+        "provider": provider,
     }
     if overrides_path is not None:
         overrides = _load_yaml_mapping(overrides_path, "queue overrides")
@@ -219,6 +223,7 @@ def _parse_queue_request_mapping(data: dict[str, object]) -> QueueRequest:
             "version",
             "repo_url",
             "commit_sha",
+            "provider",
             "eitri",
             "andvari",
             "kvasir",
@@ -237,9 +242,13 @@ def _parse_queue_request_mapping(data: dict[str, object]) -> QueueRequest:
         raise ManifestValidationError(
             "root.commit_sha must be a full 40-character lowercase SHA"
         )
+    provider_raw = pipeline_mod._optional_str(data, "provider", "root") or "codex"
+    if provider_raw not in {"codex", "claude"}:
+        raise ManifestValidationError("root.provider must be one of: codex, claude")
     return QueueRequest(
         repo_url=repo_url,
         commit_sha=commit_sha,
+        provider=cast(Provider, provider_raw),
         eitri=_parse_eitri_override(
             pipeline_mod._optional_mapping(data, "eitri", "root"), "eitri"
         ),

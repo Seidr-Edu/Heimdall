@@ -91,7 +91,7 @@ def build_step_manifest_payload(
         return {
             "version": 1,
             "run_id": context.config.run_id,
-            "adapter": "codex",
+            "adapter": context.runtime.provider,
             "gating_mode": context.config.andvari.gating_mode,
             "max_iter": context.config.andvari.max_iter,
             "max_gate_revisions": context.config.andvari.max_gate_revisions,

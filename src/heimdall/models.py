@@ -174,6 +174,7 @@ class QueueRequest:
     kvasir: dict[str, object] = field(default_factory=dict)
     lidskjalv: dict[str, object] = field(default_factory=dict)
     version: int = 1
+    provider: Provider = "codex"
 
 
 @dataclass(frozen=True)
