@@ -179,6 +179,9 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
             "skills/custom/SKILL.md",
             run_by_step["smoke-kvasir"]["provider_seed_entries"],
         )
+        self.assertNotIn(
+            "sessions/", run_by_step["smoke-kvasir"]["provider_seed_entries"]
+        )
 
     def test_smoke_provider_runs_andvari_egress_probes_by_default(self) -> None:
         write_file(

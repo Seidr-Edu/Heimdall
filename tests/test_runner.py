@@ -413,17 +413,19 @@ class RunnerIntegrationTest(unittest.TestCase):
                 "skills/.system/demo/SKILL.md",
             ],
         )
+        self.assertIn("auth.json", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertIn("config.toml", run_by_step["kvasir"]["provider_seed_entries"])
         self.assertIn("history.jsonl", run_by_step["kvasir"]["provider_seed_entries"])
-        self.assertIn("log/", run_by_step["kvasir"]["provider_seed_entries"])
         self.assertIn("memories/", run_by_step["kvasir"]["provider_seed_entries"])
         self.assertIn(
             "models_cache.json", run_by_step["kvasir"]["provider_seed_entries"]
         )
-        self.assertIn("sessions/", run_by_step["kvasir"]["provider_seed_entries"])
         self.assertIn(
             "skills/custom/SKILL.md", run_by_step["kvasir"]["provider_seed_entries"]
         )
-        self.assertIn("tmp/", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertNotIn("sessions/", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertNotIn("log/", run_by_step["kvasir"]["provider_seed_entries"])
+        self.assertNotIn("tmp/", run_by_step["kvasir"]["provider_seed_entries"])
 
         self.assertEqual(
             (self.home_dir / "tmp" / "arg0").stat().st_mode & 0o777,

@@ -17,6 +17,15 @@ _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 _MINIMAL_ANDVARI_CODEX_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
 _MINIMAL_ANDVARI_CLAUDE_SEED_RELPATHS = ("credentials.json", "settings.json")
+_KVASIR_CODEX_SEED_RELPATHS = (
+    "auth.json",
+    "config.toml",
+    "skills/.system",
+    "skills/custom",
+    "memories",
+    "history.jsonl",
+    "models_cache.json",
+)
 
 CODEX_CONTAINER_SEED_PATH = "/opt/provider-seed/codex-home"
 CLAUDE_CONTAINER_SEED_PATH = "/opt/provider-seed/claude-home"
@@ -72,6 +81,15 @@ def stage_provider_seed(
             )
             sanitize_andvari_codex_seed(service_name, destination_seed)
         return
+
+    if service_name == "kvasir" or service_name.startswith("kvasir-"):
+        stage_readable_paths(
+            source_home,
+            destination_seed,
+            _KVASIR_CODEX_SEED_RELPATHS,
+        )
+        return
+
     stage_readable_tree(source_home, destination_seed)
 
 
