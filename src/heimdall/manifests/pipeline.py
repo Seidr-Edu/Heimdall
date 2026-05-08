@@ -106,6 +106,7 @@ def pipeline_to_document(config: PipelineConfig) -> dict[str, object]:
         },
         "lidskjalv": {
             "skip_sonar": config.lidskjalv.skip_sonar,
+            "execution_timeout_sec": config.lidskjalv.execution_timeout_sec,
             "original": {
                 "repo_subdir": config.lidskjalv.original.repo_subdir,
                 "project_key": config.lidskjalv.original.project_key,
@@ -284,6 +285,7 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
         lidskjalv_data,
         {
             "skip_sonar",
+            "execution_timeout_sec",
             "sonar_wait_timeout_sec",
             "sonar_wait_poll_sec",
             "original",
@@ -293,6 +295,9 @@ def _parse_pipeline_mapping(data: dict[str, object]) -> PipelineConfig:
     )
     lidskjalv = LidskjalvConfig(
         skip_sonar=_optional_bool(lidskjalv_data, "skip_sonar", "lidskjalv", False),
+        execution_timeout_sec=_optional_int(
+            lidskjalv_data, "execution_timeout_sec", "lidskjalv", 7200
+        ),
         sonar_wait_timeout_sec=_optional_int(
             lidskjalv_data, "sonar_wait_timeout_sec", "lidskjalv", 300
         ),

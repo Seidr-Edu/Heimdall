@@ -34,6 +34,8 @@ def main(argv: list[str]) -> int:
         return _handle_pull(image_ref)
     if command == "image" and len(argv) >= 5 and argv[2] == "inspect":
         return _handle_inspect(argv[3])
+    if command == "rm":
+        return _handle_rm(argv[2:])
     if command == "run":
         return _handle_run(argv[2:])
     print(f"unsupported fake docker command: {' '.join(argv[1:])}", file=sys.stderr)
@@ -74,6 +76,7 @@ def _handle_run(args: list[str]) -> int:
     env_vars: dict[str, str] = {}
     mounts: list[dict[str, Any]] = []
     entrypoint: str | None = None
+    container_name: str | None = None
     network_name: str | None = None
     cap_drop: list[str] = []
     security_opts: list[str] = []
@@ -105,6 +108,10 @@ def _handle_run(args: list[str]) -> int:
             continue
         if token == "--entrypoint":
             entrypoint = args[idx + 1]
+            idx += 2
+            continue
+        if token == "--name":
+            container_name = args[idx + 1]
             idx += 2
             continue
         if token == "-e":
@@ -147,6 +154,7 @@ def _handle_run(args: list[str]) -> int:
         "mode": mode,
         "network": network_name,
         "entrypoint": entrypoint,
+        "name": container_name,
         "cap_drop": cap_drop,
         "security_opts": security_opts,
         "env": env_vars,
@@ -185,6 +193,28 @@ def _handle_run(args: list[str]) -> int:
         return 1
     if mode == "nonzero-after-report":
         return 1
+    return 0
+
+
+def _handle_rm(args: list[str]) -> int:
+    force = False
+    names: list[str] = []
+    for token in args:
+        if token == "-f":
+            force = True
+            continue
+        names.append(token)
+    if not names:
+        print("usage: docker rm [-f] <container>", file=sys.stderr)
+        return 1
+
+    def update(state: dict[str, Any]) -> None:
+        for name in names:
+            _append_command(state, {"kind": "rm", "name": name, "force": force})
+
+    _mutate_state(update)
+    for name in names:
+        print(name)
     return 0
 
 

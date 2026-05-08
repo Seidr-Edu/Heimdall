@@ -27,7 +27,7 @@ from heimdall.andvari_proxy import (
     pipeline_blocked_egress_artifact_path,
     pipeline_proxy_access_artifact_path,
 )
-from heimdall.images import DockerError, run_container
+from heimdall.images import DockerError, DockerTimeoutError, run_container
 from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
     STEP_EITRI,
@@ -402,6 +402,8 @@ def _execute_step(
             stream_output=context.runtime.verbose,
             output_path=log_path,
             log_prefix=step if context.runtime.verbose else None,
+            timeout_sec=_step_execution_timeout_sec(step, context.config),
+            timeout_reason="lidskjalv-timeout",
         )
     except ProxyAccessError as exc:
         finished_at = timestamp_utc()
@@ -416,6 +418,41 @@ def _execute_step(
             prepared=prepared,
             fingerprint=fingerprint,
         )
+    except DockerTimeoutError as exc:
+        finished_at = timestamp_utc()
+        _append_step_exception_log(log_path, exc)
+        proxy_capture_error = _finalize_proxy_captures(
+            proxy_capture,
+            proxy_artifact_path,
+            blocked_egress_capture,
+            blocked_egress_artifact_path,
+            log_path,
+        )
+        if prepared is not None and prepared.report_path.is_file():
+            result = _result_from_report_path(
+                step=step,
+                prepared=prepared,
+                fingerprint=fingerprint,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+            result.status = "error"
+            result.reason = exc.reason
+        else:
+            result = _execution_error_result(
+                step=step,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+                reason=exc.reason,
+                prepared=prepared,
+                fingerprint=fingerprint,
+            )
+        if proxy_capture_error is not None:
+            _apply_proxy_capture_failure(result)
     except DockerError as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
@@ -702,6 +739,15 @@ def _append_step_exception_log(log_path: Path, exc: Exception) -> None:
     detail = str(exc).strip() or exc.__class__.__name__
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(f"\n[heimdall][error] {detail}\n")
+
+
+def _step_execution_timeout_sec(step: str, config: PipelineConfig) -> float | None:
+    if not step.startswith("lidskjalv-"):
+        return None
+    timeout_sec = config.lidskjalv.execution_timeout_sec
+    if timeout_sec <= 0:
+        return None
+    return float(timeout_sec)
 
 
 def _cleanup_executed_step_runtime(prepared: StepPrepared, log_path: Path) -> None:

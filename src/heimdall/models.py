@@ -114,6 +114,7 @@ class LidskjalvTargetConfig:
 @dataclass(frozen=True)
 class LidskjalvConfig:
     skip_sonar: bool = False
+    execution_timeout_sec: int = 7200
     sonar_wait_timeout_sec: int = 300
     sonar_wait_poll_sec: int = 5
     original: LidskjalvTargetConfig = field(default_factory=LidskjalvTargetConfig)

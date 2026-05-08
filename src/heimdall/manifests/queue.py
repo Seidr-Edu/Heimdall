@@ -369,6 +369,7 @@ def _parse_lidskjalv_config(data: dict[str, object]) -> LidskjalvConfig:
         data,
         {
             "skip_sonar",
+            "execution_timeout_sec",
             "sonar_wait_timeout_sec",
             "sonar_wait_poll_sec",
             "original",
@@ -378,6 +379,9 @@ def _parse_lidskjalv_config(data: dict[str, object]) -> LidskjalvConfig:
     )
     return LidskjalvConfig(
         skip_sonar=pipeline_mod._optional_bool(data, "skip_sonar", "lidskjalv", False),
+        execution_timeout_sec=pipeline_mod._optional_int(
+            data, "execution_timeout_sec", "lidskjalv", 7200
+        ),
         sonar_wait_timeout_sec=pipeline_mod._optional_int(
             data, "sonar_wait_timeout_sec", "lidskjalv", 300
         ),
@@ -499,6 +503,7 @@ def _parse_lidskjalv_override(data: dict[str, object], path: str) -> dict[str, o
         data,
         {
             "skip_sonar",
+            "execution_timeout_sec",
             "sonar_wait_timeout_sec",
             "sonar_wait_poll_sec",
             "original",
@@ -510,6 +515,10 @@ def _parse_lidskjalv_override(data: dict[str, object], path: str) -> dict[str, o
     if "skip_sonar" in data:
         result["skip_sonar"] = pipeline_mod._optional_bool(
             data, "skip_sonar", path, False
+        )
+    if "execution_timeout_sec" in data:
+        result["execution_timeout_sec"] = pipeline_mod._optional_int(
+            data, "execution_timeout_sec", path, 7200
         )
     if "sonar_wait_timeout_sec" in data:
         result["sonar_wait_timeout_sec"] = pipeline_mod._optional_int(
@@ -594,6 +603,7 @@ def _kvasir_to_document(config: KvasirConfig) -> dict[str, object]:
 def _lidskjalv_to_document(config: LidskjalvConfig) -> dict[str, object]:
     return {
         "skip_sonar": config.skip_sonar,
+        "execution_timeout_sec": config.execution_timeout_sec,
         "original": _lidskjalv_target_to_document(config.original),
         "generated": _lidskjalv_target_to_document(config.generated),
     }

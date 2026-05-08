@@ -883,6 +883,51 @@ enabled = true
             (run_root / "services" / "kvasir" / "run" / "provider-state").exists()
         )
 
+    def test_lidskjalv_timeout_marks_step_error_and_removes_container(self) -> None:
+        timeout_manifest = build_pipeline_manifest().replace(
+            "lidskjalv:\n  skip_sonar: true\n",
+            "lidskjalv:\n  skip_sonar: true\n  execution_timeout_sec: 1\n",
+        )
+        write_file(self.pipeline_path, timeout_manifest)
+
+        completed = self._run_cli(
+            [
+                "run",
+                str(self.pipeline_path),
+                "--runs-root",
+                str(self.runs_root),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+            ],
+            extra_env={"FAKE_DOCKER_LIDSKJALV_ORIGINAL_SLEEP_SEC": "2"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        run_root = self.runs_root / "20260312T120000Z__heimdall"
+        report = json.loads(
+            (run_root / "pipeline" / "outputs" / "run_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["steps"]["lidskjalv-original"]["status"], "error")
+        self.assertEqual(
+            report["steps"]["lidskjalv-original"]["reason"], "lidskjalv-timeout"
+        )
+        self.assertEqual(report["steps"]["lidskjalv-generated"]["status"], "passed")
+
+        log_text = (
+            run_root / "pipeline" / "logs" / "lidskjalv-original.log"
+        ).read_text(encoding="utf-8")
+        self.assertIn("timed out", log_text)
+
+        commands = load_fake_state(self.state_path)["commands"]
+        rm_commands = [entry for entry in commands if entry["kind"] == "rm"]
+        self.assertEqual(len(rm_commands), 1)
+        self.assertTrue(rm_commands[0]["name"].startswith("heimdall-fake-lidskjalv-1-"))
+
     def test_preflight_requires_sonar_when_enabled(self) -> None:
         sonar_manifest = build_pipeline_manifest(
             skip_sonar=False, run_id="20260312T120000Z__sonar"

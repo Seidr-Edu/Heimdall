@@ -1,17 +1,32 @@
 from __future__ import annotations
 
 import os
+import queue
+import re
 import subprocess
 import sys
+import threading
+import time
+import uuid
 from pathlib import Path
+from typing import TextIO
 
 from heimdall.models import ImageRefs, PullPolicy, ResolvedImages
 
 _CONTAINER_SECURITY_OPTS = ("--cap-drop=ALL", "--security-opt=no-new-privileges")
+_STREAM_POLL_SEC = 0.2
 
 
 class DockerError(RuntimeError):
     """Raised when Docker CLI interactions fail."""
+
+
+class DockerTimeoutError(DockerError):
+    """Raised when a Docker CLI interaction exceeds its timeout."""
+
+    def __init__(self, reason: str, detail: str):
+        super().__init__(detail)
+        self.reason = reason
 
 
 def ensure_docker_available() -> None:
@@ -73,8 +88,14 @@ def run_container(
     log_prefix: str | None = None,
     entrypoint: str | None = None,
     command_args: list[str] | None = None,
+    timeout_sec: float | None = None,
+    timeout_reason: str = "container-timeout",
 ) -> subprocess.CompletedProcess[str]:
     command = ["docker", "run", "--rm"]
+    timeout_container_name: str | None = None
+    if timeout_sec is not None and timeout_sec > 0:
+        timeout_container_name = _generated_container_name(image_ref)
+        command.extend(["--name", timeout_container_name])
     command.extend(_CONTAINER_SECURITY_OPTS)
     if network_name is not None:
         command.extend(["--network", network_name])
@@ -95,6 +116,9 @@ def run_container(
         stream_output=stream_output,
         output_path=output_path,
         log_prefix=log_prefix,
+        timeout_sec=timeout_sec if timeout_sec and timeout_sec > 0 else None,
+        timeout_reason=timeout_reason,
+        timeout_container_name=timeout_container_name,
     )
 
 
@@ -135,12 +159,18 @@ def _run_docker(
     stream_output: bool = False,
     output_path: Path | None = None,
     log_prefix: str | None = None,
+    timeout_sec: float | None = None,
+    timeout_reason: str = "container-timeout",
+    timeout_container_name: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return _run_command(
         ["docker", *args],
         stream_output=stream_output,
         output_path=output_path,
         log_prefix=log_prefix,
+        timeout_sec=timeout_sec,
+        timeout_reason=timeout_reason,
+        timeout_container_name=timeout_container_name,
     )
 
 
@@ -150,6 +180,9 @@ def _run_command(
     stream_output: bool = False,
     output_path: Path | None = None,
     log_prefix: str | None = None,
+    timeout_sec: float | None = None,
+    timeout_reason: str = "container-timeout",
+    timeout_container_name: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     if output_path is not None:
@@ -157,7 +190,13 @@ def _run_command(
     try:
         if stream_output:
             return _run_streaming_command(
-                args, env, output_path=output_path, log_prefix=log_prefix
+                args,
+                env,
+                output_path=output_path,
+                log_prefix=log_prefix,
+                timeout_sec=timeout_sec,
+                timeout_reason=timeout_reason,
+                timeout_container_name=timeout_container_name,
             )
         completed = subprocess.run(
             args,
@@ -165,11 +204,22 @@ def _run_command(
             capture_output=True,
             text=True,
             env=env,
+            timeout=timeout_sec,
         )
         if output_path is not None:
             output_path.write_text(
                 f"{completed.stdout}{completed.stderr}", encoding="utf-8"
             )
+    except subprocess.TimeoutExpired as exc:
+        if output_path is not None:
+            stdout = _coerce_timeout_output(exc.stdout)
+            stderr = _coerce_timeout_output(exc.stderr)
+            output_path.write_text(f"{stdout}{stderr}", encoding="utf-8")
+        raise _build_docker_timeout_error(
+            timeout_sec,
+            timeout_reason,
+            timeout_container_name,
+        ) from exc
     except subprocess.CalledProcessError as exc:
         if output_path is not None:
             output_path.write_text(
@@ -185,6 +235,34 @@ def _run_command(
 
 
 def _run_streaming_command(
+    args: list[str],
+    env: dict[str, str],
+    *,
+    output_path: Path | None,
+    log_prefix: str | None,
+    timeout_sec: float | None,
+    timeout_reason: str,
+    timeout_container_name: str | None,
+) -> subprocess.CompletedProcess[str]:
+    if timeout_sec is None:
+        return _run_streaming_command_without_timeout(
+            args,
+            env,
+            output_path=output_path,
+            log_prefix=log_prefix,
+        )
+    return _run_streaming_command_with_timeout(
+        args,
+        env,
+        output_path=output_path,
+        log_prefix=log_prefix,
+        timeout_sec=timeout_sec,
+        timeout_reason=timeout_reason,
+        timeout_container_name=timeout_container_name,
+    )
+
+
+def _run_streaming_command_without_timeout(
     args: list[str],
     env: dict[str, str],
     *,
@@ -226,3 +304,155 @@ def _run_streaming_command(
     return subprocess.CompletedProcess(
         args=args, returncode=returncode, stdout=stdout, stderr=""
     )
+
+
+def _run_streaming_command_with_timeout(
+    args: list[str],
+    env: dict[str, str],
+    *,
+    output_path: Path | None,
+    log_prefix: str | None,
+    timeout_sec: float,
+    timeout_reason: str,
+    timeout_container_name: str | None,
+) -> subprocess.CompletedProcess[str]:
+    with subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env,
+        bufsize=1,
+    ) as process:
+        if process.stdout is None:
+            raise DockerError("Failed to capture command output")
+        lines: list[str] = []
+        line_queue: queue.Queue[str | None] = queue.Queue()
+        reader = threading.Thread(
+            target=_stream_reader,
+            args=(process.stdout, line_queue),
+            daemon=True,
+        )
+        reader.start()
+        deadline = time.monotonic() + timeout_sec
+        log_handle = (
+            output_path.open("w", encoding="utf-8") if output_path is not None else None
+        )
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    _terminate_process(process)
+                    reader.join(timeout=1)
+                    while True:
+                        try:
+                            leftover = line_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        if leftover is None:
+                            break
+                        lines.append(leftover)
+                        if log_handle is not None:
+                            log_handle.write(leftover)
+                    raise _build_docker_timeout_error(
+                        timeout_sec,
+                        timeout_reason,
+                        timeout_container_name,
+                    )
+                try:
+                    line = line_queue.get(timeout=min(remaining, _STREAM_POLL_SEC))
+                except queue.Empty:
+                    if process.poll() is not None and not reader.is_alive():
+                        break
+                    continue
+                if line is None:
+                    if process.poll() is not None:
+                        break
+                    continue
+                lines.append(line)
+                if log_handle is not None:
+                    log_handle.write(line)
+                    log_handle.flush()
+                if log_prefix is None:
+                    print(line, end="", file=sys.stderr, flush=True)
+                else:
+                    print(f"[{log_prefix}] {line}", end="", file=sys.stderr, flush=True)
+        finally:
+            if log_handle is not None:
+                log_handle.close()
+        returncode = process.wait()
+        reader.join(timeout=1)
+    stdout = "".join(lines)
+    if returncode != 0:
+        detail = stdout.strip() or f"Command failed with exit code {returncode}"
+        raise DockerError(detail)
+    return subprocess.CompletedProcess(
+        args=args, returncode=returncode, stdout=stdout, stderr=""
+    )
+
+
+def _stream_reader(
+    stdout: TextIO,
+    line_queue: queue.Queue[str | None],
+) -> None:
+    try:
+        for line in stdout:
+            line_queue.put(line)
+    finally:
+        line_queue.put(None)
+
+
+def _coerce_timeout_output(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _build_docker_timeout_error(
+    timeout_sec: float | None,
+    timeout_reason: str,
+    timeout_container_name: str | None,
+) -> DockerTimeoutError:
+    detail = f"Command timed out after {_format_timeout_sec(timeout_sec)} seconds"
+    cleanup_detail = _cleanup_timed_out_container(timeout_container_name)
+    if cleanup_detail is not None:
+        detail = f"{detail}; {cleanup_detail}"
+    return DockerTimeoutError(timeout_reason, detail)
+
+
+def _cleanup_timed_out_container(container_name: str | None) -> str | None:
+    if container_name is None:
+        return None
+    try:
+        _run_docker(["rm", "-f", container_name])
+    except DockerError as exc:
+        return f"failed to remove timed-out container {container_name}: {exc}"
+    return f"removed timed-out container {container_name}"
+
+
+def _format_timeout_sec(timeout_sec: float | None) -> str:
+    if timeout_sec is None:
+        return "unknown"
+    if float(timeout_sec).is_integer():
+        return str(int(timeout_sec))
+    return str(timeout_sec)
+
+
+def _generated_container_name(image_ref: str) -> str:
+    stem = re.sub(r"[^a-zA-Z0-9_.-]+", "-", image_ref).strip("._-")
+    if not stem:
+        stem = "container"
+    return f"heimdall-{stem[:40]}-{uuid.uuid4().hex[:12]}"
+
+
+def _terminate_process(process: subprocess.Popen[str]) -> None:
+    try:
+        process.kill()
+    except OSError:
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.wait()

@@ -185,6 +185,23 @@ class QueueIntegrationTest(unittest.TestCase):
             (self.runs_root / job_id / "pipeline" / "manifest.yaml").is_file()
         )
 
+    def test_build_pipeline_manifest_for_job_applies_lidskjalv_timeout_override(
+        self,
+    ) -> None:
+        worker_config = load_worker_config(self.worker_config_path)
+        request = load_queue_request_text(
+            build_queue_request(lidskjalv={"execution_timeout_sec": 12})
+        )
+
+        manifest_text = build_pipeline_manifest_for_job(
+            worker_config,
+            request,
+            run_id="20260312T120000Z__override",
+        )
+        manifest = self._load_yaml_text(manifest_text)
+
+        self.assertEqual(manifest["lidskjalv"]["execution_timeout_sec"], 12)
+
     def test_worker_rebuilds_missing_pipeline_manifest_for_running_job(self) -> None:
         job_id = self._enqueue_job()
         job_dir = self.queue_root / "jobs" / job_id
