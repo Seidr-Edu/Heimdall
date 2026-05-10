@@ -19,6 +19,7 @@ _CLAUDE_API_KEY_HELPER_NAME = "api-key-helper.sh"
 _CLAUDE_API_KEY_HELPER_RUNTIME_PATH = (
     f"/run/provider-state/claude-home/{_CLAUDE_API_KEY_HELPER_NAME}"
 )
+_CLAUDE_ANDVARI_MODEL = "claude-sonnet-4-6"
 
 _MINIMAL_ANDVARI_CODEX_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
 _MINIMAL_ANDVARI_CLAUDE_SEED_RELPATHS = ("credentials.json", "settings.json")
@@ -148,7 +149,13 @@ def stage_andvari_claude_api_key_seed(destination_seed: Path) -> None:
     destination_seed.mkdir(parents=True, exist_ok=True)
     write_text(
         destination_seed / "settings.json",
-        json.dumps({"apiKeyHelper": _CLAUDE_API_KEY_HELPER_RUNTIME_PATH}, indent=2)
+        json.dumps(
+            {
+                "apiKeyHelper": _CLAUDE_API_KEY_HELPER_RUNTIME_PATH,
+                "model": _CLAUDE_ANDVARI_MODEL,
+            },
+            indent=2,
+        )
         + "\n",
         mode=0o644,
     )
@@ -185,6 +192,7 @@ def sanitize_andvari_claude_seed(
     if not isinstance(payload, dict):
         return
     payload.pop("mcpServers", None)
+    payload["model"] = _CLAUDE_ANDVARI_MODEL
     try:
         settings_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:

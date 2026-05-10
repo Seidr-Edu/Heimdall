@@ -380,6 +380,14 @@ enabled = true
                 for mount in run_by_step["smoke-kvasir"]["mounts"]
             )
         )
+        andvari_settings = json.loads(
+            run_by_step["smoke-andvari"]["provider_seed_config"]
+        )
+        self.assertEqual(
+            andvari_settings["apiKeyHelper"],
+            "/run/provider-state/claude-home/api-key-helper.sh",
+        )
+        self.assertEqual(andvari_settings["model"], "claude-sonnet-4-6")
         self.assertEqual(
             run_by_step["smoke-andvari"]["provider_seed_entries"],
             ["api-key-helper.sh", "settings.json"],

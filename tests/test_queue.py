@@ -172,6 +172,12 @@ class QueueIntegrationTest(unittest.TestCase):
                 for mount in kvasir_mounts
             )
         )
+        andvari_settings = json.loads(runs["andvari"]["provider_seed_config"])
+        self.assertEqual(
+            andvari_settings["apiKeyHelper"],
+            "/run/provider-state/claude-home/api-key-helper.sh",
+        )
+        self.assertEqual(andvari_settings["model"], "claude-sonnet-4-6")
         self.assertIn("settings.json", runs["andvari"]["provider_seed_entries"])
         self.assertIn("api-key-helper.sh", runs["andvari"]["provider_seed_entries"])
         self.assertNotIn("credentials.json", runs["andvari"]["provider_seed_entries"])
