@@ -151,17 +151,24 @@ class QueueIntegrationTest(unittest.TestCase):
                 for mount in andvari_mounts
             )
         )
-        self.assertTrue(
-            any(
-                mount["container"] == "/run/secrets/anthropic_api_key"
-                and Path(mount["host"]).resolve() == self.claude_api_key_file.resolve()
-                and mount["read_only"]
+        secret_mount = next(
+            (
+                mount
                 for mount in andvari_mounts
-            )
+                if mount["container"] == "/opt/provider-secrets/anthropic_api_key"
+            ),
+            None,
+        )
+        self.assertIsNotNone(secret_mount)
+        assert secret_mount is not None
+        self.assertTrue(secret_mount["read_only"])
+        self.assertEqual(Path(secret_mount["host"]).name, "anthropic-api-key.txt")
+        self.assertNotEqual(
+            Path(secret_mount["host"]).resolve(), self.claude_api_key_file.resolve()
         )
         self.assertFalse(
             any(
-                mount["container"] == "/run/secrets/anthropic_api_key"
+                mount["container"] == "/opt/provider-secrets/anthropic_api_key"
                 for mount in kvasir_mounts
             )
         )

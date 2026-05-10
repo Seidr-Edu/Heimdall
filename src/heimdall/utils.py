@@ -51,6 +51,17 @@ def stage_executable_tree(source: Path, destination: Path) -> None:
     _stage_tree(source, destination, preserve_executable_files=True)
 
 
+def stage_readable_file(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(source, destination)
+        destination.chmod(0o644)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Failed to stage readable file from {source} to {destination}: {exc}"
+        ) from exc
+
+
 def _stage_tree(
     source: Path, destination: Path, *, preserve_executable_files: bool
 ) -> None:

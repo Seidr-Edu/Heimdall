@@ -34,7 +34,7 @@ _KVASIR_CODEX_SEED_RELPATHS = (
 
 CODEX_CONTAINER_SEED_PATH = "/opt/provider-seed/codex-home"
 CLAUDE_CONTAINER_SEED_PATH = "/opt/provider-seed/claude-home"
-CLAUDE_API_KEY_SECRET_CONTAINER_PATH = "/run/secrets/anthropic_api_key"
+CLAUDE_API_KEY_SECRET_CONTAINER_PATH = "/opt/provider-secrets/anthropic_api_key"
 CODEX_HOME_SUBDIR = "codex-home"
 CLAUDE_HOME_SUBDIR = "claude-home"
 
@@ -156,7 +156,7 @@ def stage_andvari_claude_api_key_seed(destination_seed: Path) -> None:
         destination_seed / _CLAUDE_API_KEY_HELPER_NAME,
         """#!/bin/sh
 set -eu
-key_path='/run/secrets/anthropic_api_key'
+key_path='/opt/provider-secrets/anthropic_api_key'
 if [ ! -r "${key_path}" ]; then
   echo "Claude API key file unavailable: ${key_path}" >&2
   exit 1

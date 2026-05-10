@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
@@ -34,6 +36,7 @@ from heimdall.utils import (
     compact_run_id,
     ensure_directory,
     stage_executable_tree,
+    stage_readable_file,
     timestamp_utc,
     write_text,
 )
@@ -302,6 +305,7 @@ def _run_service_probe(
         container_env["HEIMDALL_ANDVARI_EGRESS_ENFORCED"] = "1"
     proxy_capture: ProxyAccessCapture | None = None
     blocked_egress_capture: ProxyAccessCapture | None = None
+    mount_staging_dir: Path | None = None
     try:
         proxy_capture = begin_proxy_access_capture(service, proxy_log_artifact_path)
         blocked_egress_capture = begin_blocked_egress_capture(
@@ -320,16 +324,22 @@ def _run_service_probe(
 
     failure_result: ServiceProbeResult | None = None
     try:
+        mount_staging_dir = Path(
+            tempfile.mkdtemp(prefix=f"heimdall-smoke-mounts-{service}-")
+        ).resolve()
         run_container(
             image_ref,
             container_env,
-            [
-                (provider_bin_dir, "/opt/provider/bin", True),
-                (provider_seed_dir, _seed_container_path, True),
-                (probe_input_dir, "/input", True),
-                (run_dir, "/run", False),
-                *extra_mounts_for_service(service, runtime),
-            ],
+            _stage_regular_file_mounts(
+                [
+                    (provider_bin_dir, "/opt/provider/bin", True),
+                    (provider_seed_dir, _seed_container_path, True),
+                    (probe_input_dir, "/input", True),
+                    (run_dir, "/run", False),
+                    *extra_mounts_for_service(service, runtime),
+                ],
+                mount_staging_dir,
+            ),
             network_name=docker_network_for_step(service, runtime),
             stream_output=runtime.verbose,
             output_path=log_path,
@@ -373,6 +383,8 @@ def _run_service_probe(
         blocked_egress_artifact_path,
         log_path,
     )
+    if mount_staging_dir is not None:
+        shutil.rmtree(mount_staging_dir, ignore_errors=True)
     if proxy_capture_error is not None:
         reason = getattr(
             proxy_capture_error, "reason", "proxy-access-log-capture-failed"
@@ -926,6 +938,20 @@ def _write_probe_input(path: Path) -> None:
     ensure_directory(path, 0o755)
     write_text(path / SMOKE_INPUT_FILENAME, SMOKE_INPUT_CONTENT)
     write_text(path / "diagram.puml", "@startuml\nclass Smoke\n@enduml\n")
+
+
+def _stage_regular_file_mounts(
+    mounts: list[tuple[Path, str, bool]],
+    staging_root: Path,
+) -> list[tuple[Path, str, bool]]:
+    staged_mounts: list[tuple[Path, str, bool]] = []
+    for index, (host_path, container_path, read_only) in enumerate(mounts):
+        staged_host_path = host_path
+        if host_path.is_file():
+            staged_host_path = staging_root / f"mount-{index}" / host_path.name
+            stage_readable_file(host_path, staged_host_path)
+        staged_mounts.append((staged_host_path, container_path, read_only))
+    return staged_mounts
 
 
 def _stage_conflict(source: Path, destination: Path) -> str | None:

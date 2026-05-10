@@ -369,15 +369,14 @@ enabled = true
                 self.output_dir / "services" / "kvasir" / "input" / "provider-seed"
             ).resolve(),
         )
-        self.assertEqual(
-            self._mount_host_path(
-                run_by_step["smoke-andvari"], "/run/secrets/anthropic_api_key"
-            ).resolve(),
-            self.claude_api_key_file.resolve(),
-        )
+        secret_mount_path = self._mount_host_path(
+            run_by_step["smoke-andvari"], "/opt/provider-secrets/anthropic_api_key"
+        ).resolve()
+        self.assertEqual(secret_mount_path.name, "anthropic-api-key.txt")
+        self.assertNotEqual(secret_mount_path, self.claude_api_key_file.resolve())
         self.assertFalse(
             any(
-                mount["container"] == "/run/secrets/anthropic_api_key"
+                mount["container"] == "/opt/provider-secrets/anthropic_api_key"
                 for mount in run_by_step["smoke-kvasir"]["mounts"]
             )
         )
