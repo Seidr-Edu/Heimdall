@@ -9,6 +9,8 @@ from pathlib import Path
 
 from heimdall.execution import (
     _check_claude_home_dir as _check_claude_home_dir,
+)
+from heimdall.execution import (
     build_runtime,
     resume_run_root,
     run_pipeline_manifest_path,

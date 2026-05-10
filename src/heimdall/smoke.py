@@ -21,7 +21,6 @@ from heimdall.andvari_proxy import (
 from heimdall.images import DockerError, resolve_image, run_container
 from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
-    CODEX_CONTAINER_SEED_PATH,
     docker_network_for_step,
     env_for_step,
     extra_mounts_for_service,
