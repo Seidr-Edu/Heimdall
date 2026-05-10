@@ -6,6 +6,7 @@ from typing import cast
 
 from heimdall.models import (
     AndvariConfig,
+    ClaudeAuthMode,
     EitriConfig,
     ImageRefs,
     KvasirConfig,
@@ -151,6 +152,8 @@ def _parse_worker_config_mapping(
             "codex_bin_dir",
             "codex_host_bin_dir",
             "codex_home_dir",
+            "claude_auth_mode",
+            "claude_api_key_file",
             "claude_home_dir",
             "provider",
             "pull_policy",
@@ -177,6 +180,14 @@ def _parse_worker_config_mapping(
     if provider_raw not in {"codex", "claude"}:
         raise ManifestValidationError("root.provider must be one of: codex, claude")
     provider = cast(Provider, provider_raw)
+    claude_auth_mode_raw = (
+        pipeline_mod._optional_str(data, "claude_auth_mode", "root") or "oauth"
+    )
+    if claude_auth_mode_raw not in {"oauth", "api-key-file"}:
+        raise ManifestValidationError(
+            "root.claude_auth_mode must be one of: oauth, api-key-file"
+        )
+    claude_auth_mode = cast(ClaudeAuthMode, claude_auth_mode_raw)
     return WorkerConfig(
         queue_root=_resolve_path(
             pipeline_mod._require_str(data, "queue_root", "root"), base_dir
@@ -195,6 +206,10 @@ def _parse_worker_config_mapping(
         ),
         claude_home_dir=_optional_resolve_path(
             pipeline_mod._optional_str(data, "claude_home_dir", "root"), base_dir
+        ),
+        claude_api_key_file=_optional_resolve_path(
+            pipeline_mod._optional_str(data, "claude_api_key_file", "root"),
+            base_dir,
         ),
         pull_policy=cast(PullPolicy, pull_policy),
         verbose=pipeline_mod._optional_bool(data, "verbose", "root", False),
@@ -217,6 +232,7 @@ def _parse_worker_config_mapping(
             data, "andvari_internal_network_name", "root"
         ),
         provider=provider,
+        claude_auth_mode=claude_auth_mode,
     )
 
 

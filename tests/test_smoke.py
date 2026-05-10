@@ -31,7 +31,13 @@ class ProviderSmokeIntegrationTest(unittest.TestCase):
         self.bin_dir, self.home_dir, self.state_path = install_fake_tools(self.root)
         self.pipeline_path = self.root / "pipeline.yaml"
         self.output_dir = self.root / "smoke-output"
+        self.claude_api_key_file = self.root / "anthropic-api-key.txt"
         write_file(self.pipeline_path, build_pipeline_manifest())
+        write_file(
+            self.claude_api_key_file,
+            "sk-ant-test-smoke-secret\n",
+            mode=0o600,
+        )
         write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
         write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
         write_file(
@@ -275,6 +281,168 @@ enabled = true
             "web_search",
             kvasir_config,
         )
+
+    def test_smoke_provider_supports_claude_api_key_mode_for_andvari_only(self) -> None:
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+                "--provider",
+                "claude",
+                "--claude-auth-mode",
+                "api-key-file",
+                "--claude-api-key-file",
+                str(self.claude_api_key_file),
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        summary = json.loads(
+            (self.output_dir / "summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(summary["status"], "passed")
+        self.assertEqual(summary["services"]["andvari"]["status"], "passed")
+        self.assertEqual(summary["services"]["kvasir"]["status"], "passed")
+        self.assertEqual(
+            Path(summary["services"]["andvari"]["runtime_provider_home"]).name,
+            "claude-home",
+        )
+        self.assertEqual(
+            Path(summary["services"]["kvasir"]["runtime_provider_home"]).name,
+            "codex-home",
+        )
+        self.assertTrue(
+            (
+                self.output_dir
+                / "services"
+                / "andvari"
+                / "run"
+                / "provider-state"
+                / "claude-home"
+                / "settings.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                self.output_dir
+                / "services"
+                / "andvari"
+                / "run"
+                / "provider-state"
+                / "claude-home"
+                / "api-key-helper.sh"
+            ).is_file()
+        )
+        self.assertFalse(
+            (
+                self.output_dir
+                / "services"
+                / "andvari"
+                / "run"
+                / "provider-state"
+                / "claude-home"
+                / "credentials.json"
+            ).exists()
+        )
+
+        runs = load_fake_state(self.state_path)["runs"]
+        run_by_step = {entry["step"]: entry for entry in runs}
+        self.assertEqual(
+            self._mount_host_path(
+                run_by_step["smoke-andvari"], "/opt/provider-seed/claude-home"
+            ).resolve(),
+            (
+                self.output_dir / "services" / "andvari" / "input" / "provider-seed"
+            ).resolve(),
+        )
+        self.assertEqual(
+            self._mount_host_path(
+                run_by_step["smoke-kvasir"], "/opt/provider-seed/codex-home"
+            ).resolve(),
+            (
+                self.output_dir / "services" / "kvasir" / "input" / "provider-seed"
+            ).resolve(),
+        )
+        self.assertEqual(
+            self._mount_host_path(
+                run_by_step["smoke-andvari"], "/run/secrets/anthropic_api_key"
+            ).resolve(),
+            self.claude_api_key_file.resolve(),
+        )
+        self.assertFalse(
+            any(
+                mount["container"] == "/run/secrets/anthropic_api_key"
+                for mount in run_by_step["smoke-kvasir"]["mounts"]
+            )
+        )
+        self.assertEqual(
+            run_by_step["smoke-andvari"]["provider_seed_entries"],
+            ["api-key-helper.sh", "settings.json"],
+        )
+        self.assertIn("auth.json", run_by_step["smoke-kvasir"]["provider_seed_entries"])
+        self.assertIn("/opt/provider/bin/claude", self._service_log("andvari"))
+        self.assertIn("/opt/provider/bin/codex", self._service_log("kvasir"))
+        self.assertNotIn(
+            "sk-ant-test-smoke-secret", self._read_tree_text(self.output_dir)
+        )
+        self.assertNotIn(
+            "sk-ant-test-smoke-secret",
+            self.state_path.read_text(encoding="utf-8"),
+        )
+
+    def test_smoke_provider_claude_api_key_mode_requires_key_file(self) -> None:
+        missing_key_file = self.root / "missing-anthropic-api-key.txt"
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+                "--provider",
+                "claude",
+                "--claude-auth-mode",
+                "api-key-file",
+                "--claude-api-key-file",
+                str(missing_key_file),
+            ]
+        )
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("Claude API key file does not exist", completed.stderr)
+
+    def test_smoke_provider_claude_api_key_mode_still_requires_codex_login(
+        self,
+    ) -> None:
+        completed = self._run_cli(
+            [
+                "smoke-provider",
+                str(self.pipeline_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--codex-bin-dir",
+                str(self.bin_dir),
+                "--codex-home-dir",
+                str(self.home_dir),
+                "--provider",
+                "claude",
+                "--claude-auth-mode",
+                "api-key-file",
+                "--claude-api-key-file",
+                str(self.claude_api_key_file),
+            ],
+            extra_env={"FAKE_CODEX_FAIL": "1"},
+        )
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("codex login status failed", completed.stderr)
 
     def test_provider_probe_script_uses_gradle_44_compatible_task_syntax(self) -> None:
         script = _provider_probe_script()
@@ -686,6 +854,17 @@ enabled = true
             if mount["container"] == container_path:
                 return Path(mount["host"])
         self.fail(f"missing mount for {container_path}")
+
+    def _service_log(self, service: str) -> str:
+        return (self.output_dir / "logs" / f"{service}.log").read_text(encoding="utf-8")
+
+    def _read_tree_text(self, root: Path) -> str:
+        chunks: list[str] = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            chunks.append(path.read_text(encoding="utf-8"))
+        return "\n".join(chunks)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+
+
+def main(argv: list[str]) -> int:
+    if argv[1:] == ["--version"]:
+        print("claude-cli 1.0.0")
+        return 0
+    print("unsupported fake claude invocation", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

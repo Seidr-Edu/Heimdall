@@ -435,7 +435,9 @@ def _runtime_from_worker_config(
         worker_config.verbose,
         andvari_internal_network_name=worker_config.andvari_internal_network_name,
         provider=provider if provider is not None else worker_config.provider,
+        claude_auth_mode=worker_config.claude_auth_mode,
         claude_home_dir=worker_config.claude_home_dir,
+        claude_api_key_file=worker_config.claude_api_key_file,
     )
 
 

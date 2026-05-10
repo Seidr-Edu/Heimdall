@@ -24,6 +24,7 @@ from tests.helpers import (
     build_worker_config,
     fake_env,
     install_fake_tools,
+    load_fake_state,
     write_file,
 )
 
@@ -35,6 +36,14 @@ class QueueIntegrationTest(unittest.TestCase):
         self.queue_root = self.root / "queue"
         self.runs_root = self.root / "runs"
         self.bin_dir, self.home_dir, self.state_path = install_fake_tools(self.root)
+        write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
+        write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
+        self.claude_api_key_file = self.root / "anthropic-api-key.txt"
+        write_file(
+            self.claude_api_key_file,
+            "sk-ant-test-queue-secret\n",
+            mode=0o600,
+        )
         self.worker_config_path = self.root / "worker.yaml"
         write_file(
             self.worker_config_path,
@@ -86,6 +95,89 @@ class QueueIntegrationTest(unittest.TestCase):
 
         worker_config = load_worker_config(self.worker_config_path)
         self.assertEqual(worker_config.andvari_internal_network_name, "andvari-egress")
+
+    def test_worker_config_accepts_claude_api_key_auth_fields(self) -> None:
+        write_file(
+            self.worker_config_path,
+            build_worker_config(
+                queue_root=self.queue_root,
+                runs_root=self.runs_root,
+                codex_bin_dir=self.bin_dir,
+                codex_home_dir=self.home_dir,
+                claude_auth_mode="api-key-file",
+                claude_api_key_file=self.claude_api_key_file,
+            ),
+        )
+
+        worker_config = load_worker_config(self.worker_config_path)
+        self.assertEqual(worker_config.claude_auth_mode, "api-key-file")
+        self.assertEqual(
+            worker_config.claude_api_key_file, self.claude_api_key_file.resolve()
+        )
+
+    def test_worker_mounts_claude_api_key_for_andvari_only(self) -> None:
+        write_file(
+            self.worker_config_path,
+            build_worker_config(
+                queue_root=self.queue_root,
+                runs_root=self.runs_root,
+                codex_bin_dir=self.bin_dir,
+                codex_home_dir=self.home_dir,
+                claude_auth_mode="api-key-file",
+                claude_api_key_file=self.claude_api_key_file,
+            ),
+        )
+        job_id = self._enqueue_job(request_text=build_queue_request(provider="claude"))
+
+        completed = self._run_cli(
+            [
+                "worker",
+                "--worker-config",
+                str(self.worker_config_path),
+                "--once",
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        state = load_fake_state(self.state_path)
+        runs = {entry["step"]: entry for entry in state["runs"]}
+        andvari_mounts = runs["andvari"]["mounts"]
+        kvasir_mounts = runs["kvasir"]["mounts"]
+        self.assertEqual(runs["andvari"]["manifest"]["adapter"], "claude")
+        self.assertEqual(runs["kvasir"]["manifest"]["adapter"], "codex")
+        self.assertTrue(
+            any(
+                mount["container"] == "/opt/provider-seed/claude-home"
+                for mount in andvari_mounts
+            )
+        )
+        self.assertTrue(
+            any(
+                mount["container"] == "/run/secrets/anthropic_api_key"
+                and Path(mount["host"]).resolve() == self.claude_api_key_file.resolve()
+                and mount["read_only"]
+                for mount in andvari_mounts
+            )
+        )
+        self.assertFalse(
+            any(
+                mount["container"] == "/run/secrets/anthropic_api_key"
+                for mount in kvasir_mounts
+            )
+        )
+        self.assertIn("settings.json", runs["andvari"]["provider_seed_entries"])
+        self.assertIn("api-key-helper.sh", runs["andvari"]["provider_seed_entries"])
+        self.assertNotIn("credentials.json", runs["andvari"]["provider_seed_entries"])
+        self.assertIn("auth.json", runs["kvasir"]["provider_seed_entries"])
+        self.assertNotIn(
+            "sk-ant-test-queue-secret",
+            self.state_path.read_text(encoding="utf-8"),
+        )
+
+        job_document = self._load_yaml_file(
+            self.queue_root / "jobs" / job_id / "job.yaml"
+        )
+        self.assertEqual(job_document["status"], "passed")
 
     def test_enqueue_rejects_invalid_request(self) -> None:
         completed = self._run_cli(

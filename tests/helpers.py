@@ -94,6 +94,10 @@ def build_worker_config(
     codex_bin_dir: Path,
     codex_home_dir: Path,
     codex_host_bin_dir: Path | None = None,
+    provider: str = "codex",
+    claude_auth_mode: str | None = None,
+    claude_home_dir: Path | None = None,
+    claude_api_key_file: Path | None = None,
     skip_sonar: bool = True,
     verbose: bool = False,
     andvari_internal_network_name: str = DEFAULT_ANDVARI_NETWORK_NAME,
@@ -104,6 +108,7 @@ def build_worker_config(
         "runs_root": str(runs_root),
         "codex_bin_dir": str(codex_bin_dir),
         "codex_home_dir": str(codex_home_dir),
+        "provider": provider,
         "pull_policy": "if-missing",
         "verbose": verbose,
         "andvari_internal_network_name": andvari_internal_network_name,
@@ -152,6 +157,12 @@ def build_worker_config(
     }
     if codex_host_bin_dir is not None:
         document["codex_host_bin_dir"] = str(codex_host_bin_dir)
+    if claude_auth_mode is not None:
+        document["claude_auth_mode"] = claude_auth_mode
+    if claude_home_dir is not None:
+        document["claude_home_dir"] = str(claude_home_dir)
+    if claude_api_key_file is not None:
+        document["claude_api_key_file"] = str(claude_api_key_file)
     return dumps(document)
 
 
@@ -159,6 +170,7 @@ def build_queue_request(
     *,
     repo_url: str = "https://github.com/example/demo-repo.git",
     commit_sha: str = "0123456789abcdef0123456789abcdef01234567",
+    provider: str | None = None,
     eitri: dict[str, object] | None = None,
     andvari: dict[str, object] | None = None,
     kvasir: dict[str, object] | None = None,
@@ -169,6 +181,8 @@ def build_queue_request(
         "repo_url": repo_url,
         "commit_sha": commit_sha,
     }
+    if provider is not None:
+        document["provider"] = provider
     if eitri:
         document["eitri"] = eitri
     if andvari:
@@ -193,7 +207,7 @@ def install_fake_tools(root: Path) -> tuple[Path, Path, Path]:
     state_path = root / "fake-docker-state.json"
     bin_dir.mkdir(parents=True, exist_ok=True)
     home_dir.mkdir(parents=True, exist_ok=True)
-    for tool_name in ("docker", "codex"):
+    for tool_name in ("docker", "codex", "claude"):
         source = FAKES_DIR / tool_name
         target = bin_dir / tool_name
         shutil.copy2(source, target)

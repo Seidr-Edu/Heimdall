@@ -22,10 +22,13 @@ from heimdall.images import DockerError, resolve_image, run_container
 from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
     CODEX_CONTAINER_SEED_PATH,
-    andvari_home_dir,
     docker_network_for_step,
     env_for_step,
-    provider_seed_container_path,
+    extra_mounts_for_service,
+    provider_for_service,
+    provider_home_dir_for_service,
+    provider_home_subdir_for_service,
+    provider_seed_container_path_for_service,
     stage_provider_seed,
 )
 from heimdall.utils import (
@@ -146,7 +149,7 @@ def _host_info(runtime: RuntimeConfig) -> HostInfo:
         "provider": runtime.provider,
         "provider_host_bin_dir": str(runtime.codex_host_bin_dir),
         "provider_container_bin_dir": str(runtime.codex_bin_dir),
-        "provider_home_dir": str(andvari_home_dir(runtime)),
+        "provider_home_dir": str(provider_home_dir_for_service("andvari", runtime)),
         "host_provider_executable": str(host_executable),
         "host_provider_binary_format": host_binary_format,
         "container_provider_executable": str(container_executable),
@@ -182,16 +185,10 @@ def _run_service_probe(
     provider_bin_dir = service_root / "input" / "provider-bin"
     provider_seed_dir = service_root / "input" / "provider-seed"
     probe_input_dir = service_root / "input" / "probe-input"
-    if service == "kvasir":
-        _service_home_dir = runtime.codex_home_dir
-        _seed_container_path = CODEX_CONTAINER_SEED_PATH
-        provider_home_subdir = "codex-home"
-    else:
-        _service_home_dir = andvari_home_dir(runtime)
-        _seed_container_path = provider_seed_container_path(runtime)
-        provider_home_subdir = (
-            "claude-home" if runtime.provider == "claude" else "codex-home"
-        )
+    service_provider = provider_for_service(service, runtime)
+    _service_home_dir = provider_home_dir_for_service(service, runtime)
+    _seed_container_path = provider_seed_container_path_for_service(service, runtime)
+    provider_home_subdir = provider_home_subdir_for_service(service, runtime)
     runtime_provider_home = run_dir / "provider-state" / provider_home_subdir
     proxy_log_artifact_path = (
         smoke_proxy_access_artifact_path(services_dir.parent, service)
@@ -297,7 +294,10 @@ def _run_service_probe(
             "detail": detail,
         }
 
-    container_env = {"HEIMDALL_SMOKE_SERVICE": service}
+    container_env = {
+        "HEIMDALL_SMOKE_SERVICE": service,
+        "HEIMDALL_SMOKE_PROVIDER": service_provider,
+    }
     container_env.update(env_for_step(service, runtime))
     if uses_andvari_proxy_runtime(service):
         container_env["HEIMDALL_ANDVARI_EGRESS_ENFORCED"] = "1"
@@ -329,20 +329,21 @@ def _run_service_probe(
                 (provider_seed_dir, _seed_container_path, True),
                 (probe_input_dir, "/input", True),
                 (run_dir, "/run", False),
+                *extra_mounts_for_service(service, runtime),
             ],
             network_name=docker_network_for_step(service, runtime),
             stream_output=runtime.verbose,
             output_path=log_path,
             log_prefix=f"smoke-{service}" if runtime.verbose else None,
             entrypoint="/bin/bash",
-            command_args=["-lc", _probe_script_for_provider(runtime.provider)],
+            command_args=["-lc", _probe_script_for_provider(service_provider)],
         )
     except DockerError as exc:
         log_text = _read_log_text(log_path)
         probe_output = log_text or str(exc)
-        reason = _classify_probe_failure(probe_output, runtime.provider)
+        reason = _classify_probe_failure(probe_output, service_provider)
         detail = _summarize_probe_failure(probe_output, reason)
-        hint = _probe_failure_hint(reason, runtime)
+        hint = _probe_failure_hint(reason, runtime, service_provider)
         _append_log(log_path, f"\n[heimdall][smoke] classified reason: {reason}\n")
         if hint is not None:
             _append_log(log_path, f"[heimdall][smoke] hint: {hint}\n")
@@ -703,6 +704,8 @@ def _classify_probe_failure(detail: str, provider: str = "codex") -> str:
             or "claude: not found" in lowered
         ):
             return "provider-cli-unavailable-in-container"
+        if "authentication failed" in lowered or "invalid api key" in lowered:
+            return "claude-auth-unusable-in-container"
         if (
             "claude did not create /run/workspace/smoke-result.txt" in lowered
             or "claude created /run/workspace/smoke-result.txt, but it did not match /input/smoke.txt"
@@ -772,6 +775,10 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
         for index, line in enumerate(lowered):
             if "not logged in" in line or "command failed: codex login status" in line:
                 return lines[index]
+    if reason == "claude-auth-unusable-in-container":
+        for index, line in enumerate(lowered):
+            if "authentication failed" in line or "invalid api key" in line:
+                return lines[index]
     if reason == "provider-exec-workspace-access-failed":
         for index, line in enumerate(lowered):
             if (
@@ -802,8 +809,10 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
     return "Probe failed without producing any diagnostic output."
 
 
-def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
-    binary_name = "claude" if runtime.provider == "claude" else "codex"
+def _probe_failure_hint(
+    reason: str, runtime: RuntimeConfig, provider: str
+) -> str | None:
+    binary_name = "claude" if provider == "claude" else "codex"
     binary_format = _detect_binary_format(
         (runtime.codex_bin_dir / binary_name).resolve()
     )
@@ -823,13 +832,19 @@ def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
             "The binary runs inside the container, but the staged CODEX_HOME does not "
             "authenticate there. Check auth.json/config.toml and rerun the smoke test."
         )
+    if reason == "claude-auth-unusable-in-container":
+        return (
+            "The binary runs inside the container, but Claude auth is unusable there. "
+            "Confirm the staged settings.json points at the mounted secret helper and "
+            "the mounted API key file is readable inside the container."
+        )
     if reason == "provider-cli-unavailable-in-container":
         return (
             f"The staged provider bin is not exposing a runnable {binary_name} executable "
             f"inside the container. Use a dedicated bin directory containing only {binary_name}."
         )
     if reason == "provider-exec-workspace-access-failed":
-        if runtime.provider == "claude":
+        if provider == "claude":
             return (
                 "The binary and credentials work, but claude could not use the mounted "
                 "service workspace. Confirm the container image invokes claude with "

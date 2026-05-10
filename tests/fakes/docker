@@ -316,21 +316,33 @@ def _truncate_blocked_egress_log() -> None:
 
 
 def _read_provider_seed_config(container: _ContainerMounts) -> str | None:
-    try:
-        path = container.resolve("/opt/provider-seed/codex-home/config.toml")
-    except RuntimeError:
-        return None
-    if not path.is_file():
-        return None
-    return path.read_text(encoding="utf-8")
+    for candidate in (
+        "/opt/provider-seed/codex-home/config.toml",
+        "/opt/provider-seed/claude-home/settings.json",
+    ):
+        try:
+            path = container.resolve(candidate)
+        except RuntimeError:
+            continue
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    return None
 
 
 def _read_provider_seed_entries(container: _ContainerMounts) -> list[str] | None:
-    try:
-        root = container.resolve("/opt/provider-seed/codex-home")
-    except RuntimeError:
-        return None
-    if not root.is_dir():
+    root = None
+    for candidate in (
+        "/opt/provider-seed/codex-home",
+        "/opt/provider-seed/claude-home",
+    ):
+        try:
+            resolved = container.resolve(candidate)
+        except RuntimeError:
+            continue
+        if resolved.is_dir():
+            root = resolved
+            break
+    if root is None:
         return None
 
     entries: list[str] = []
@@ -404,42 +416,67 @@ def _run_provider_smoke(
     mode: str,
     network_name: str | None,
 ) -> int:
-    runtime_dir = container.resolve("/run/provider-state/codex-home")
+    provider = env_vars.get("HEIMDALL_SMOKE_PROVIDER", "codex")
+    home_subdir = "claude-home" if provider == "claude" else "codex-home"
+    provider_binary = "claude" if provider == "claude" else "codex"
+    runtime_dir = container.resolve(f"/run/provider-state/{home_subdir}")
     runtime_dir.mkdir(parents=True, exist_ok=True)
     workspace_dir = container.resolve("/run/workspace")
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    provider_seed = container.resolve("/opt/provider-seed/codex-home")
+    provider_seed = container.resolve(f"/opt/provider-seed/{home_subdir}")
     smoke_input = container.resolve("/input/smoke.txt")
     if provider_seed.exists():
         shutil.copytree(provider_seed, runtime_dir, dirs_exist_ok=True)
 
     service = env_vars.get("HEIMDALL_SMOKE_SERVICE", "unknown")
     print(f"[smoke] service={service}")
-    print("/opt/provider/bin/codex")
+    print(f"/opt/provider/bin/{provider_binary}")
 
     if mode == "version-fail":
-        print("/opt/provider/bin/codex: cannot execute binary file: Exec format error")
-        return 1
-    if mode == "login-fail":
-        print("codex-cli 0.113.0")
-        print("Not logged in")
-        return 1
-    if mode == "exec-fail":
-        print("codex-cli 0.113.0")
-        print("Logged in using ChatGPT")
-        print("sandbox denied access to /input/smoke.txt")
         print(
-            "[smoke][error] command failed: codex exec --skip-git-repo-check "
-            "--dangerously-bypass-approvals-and-sandbox --cd /run/workspace "
-            "--add-dir /input --json --output-last-message "
-            "/run/workspace/last-message.txt - (exit 1)"
+            f"/opt/provider/bin/{provider_binary}: cannot execute binary file: Exec format error"
         )
         return 1
+    if mode == "login-fail":
+        if provider == "claude":
+            print("claude-cli 1.0.0")
+            print("Authentication failed")
+        else:
+            print("codex-cli 0.113.0")
+            print("Not logged in")
+        return 1
+    if mode == "exec-fail":
+        if provider == "claude":
+            print("claude-cli 1.0.0")
+            print("sandbox denied access to /input/smoke.txt")
+            print(
+                "[smoke][error] command failed: claude --dangerously-skip-permissions "
+                "--add-dir /input --output-format json -p <prompt> (exit 1)"
+            )
+        else:
+            print("codex-cli 0.113.0")
+            print("Logged in using ChatGPT")
+            print("sandbox denied access to /input/smoke.txt")
+            print(
+                "[smoke][error] command failed: codex exec --skip-git-repo-check "
+                "--dangerously-bypass-approvals-and-sandbox --cd /run/workspace "
+                "--add-dir /input --json --output-last-message "
+                "/run/workspace/last-message.txt - (exit 1)"
+            )
+        return 1
     if mode == "exec-no-artifact":
-        print("codex-cli 0.113.0")
-        print("Logged in using ChatGPT")
+        print("claude-cli 1.0.0" if provider == "claude" else "codex-cli 0.113.0")
+        if provider == "codex":
+            print("Logged in using ChatGPT")
         print("SMOKE_OK")
-        print("[smoke][error] codex exec did not create /run/workspace/smoke-result.txt")
+        if provider == "claude":
+            print(
+                "[smoke][error] claude did not create /run/workspace/smoke-result.txt"
+            )
+        else:
+            print(
+                "[smoke][error] codex exec did not create /run/workspace/smoke-result.txt"
+            )
         return 1
 
     egress_enforced = env_vars.get("HEIMDALL_ANDVARI_EGRESS_ENFORCED") == "1"
@@ -450,47 +487,59 @@ def _run_provider_smoke(
         if mode == "github-probe-fail":
             print("[smoke][error] egress probe unexpectedly succeeded: https://github.com")
             return 1
-        if mode == "maven-probe-fail":
+        if provider != "claude" and mode == "maven-probe-fail":
             print("[smoke][error] egress probe unexpectedly succeeded: maven dependency resolution")
             return 1
-        if mode == "gradle-probe-fail":
+        if provider != "claude" and mode == "gradle-probe-fail":
             print("[smoke][error] egress probe unexpectedly succeeded: gradle dependency resolution")
             return 1
         if mode == "raw-socket-fail":
             print("[smoke][error] egress probe unexpectedly succeeded: python raw tcp github.com:22")
             return 1
 
-    print("codex-cli 0.113.0")
-    print("Logged in using ChatGPT")
+    print("claude-cli 1.0.0" if provider == "claude" else "codex-cli 0.113.0")
+    if provider == "codex":
+        print("Logged in using ChatGPT")
     if smoke_input.exists():
         shutil.copy2(smoke_input, workspace_dir / "smoke-result.txt")
-    (workspace_dir / "last-message.txt").write_text("SMOKE_OK\n", encoding="utf-8")
+    if provider == "codex":
+        (workspace_dir / "last-message.txt").write_text(
+            "SMOKE_OK\n", encoding="utf-8"
+        )
     print("SMOKE_OK")
-    print("[smoke] codex exec workspace probe passed")
+    if provider == "claude":
+        print("[smoke] claude workspace probe passed")
+    else:
+        print("[smoke] codex exec workspace probe passed")
     if egress_enforced:
-        _append_proxy_access_log(
-            service,
-            [
-                {"decision": "allow", "target": "example.com:443"},
+        proxy_entries: list[dict[str, Any]] = [
+            {"decision": "allow", "target": "example.com:443"},
+            {"decision": "deny", "target": "github.com:443"},
+            {"decision": "deny", "target": "api.github.com:443"},
+            {
+                "decision": "deny",
+                "target": "raw.githubusercontent.com:443",
+            },
+            {"decision": "deny", "target": "github.com:443", "tool": "git"},
+        ]
+        if provider != "claude":
+            proxy_entries.insert(
+                1,
                 {
                     "decision": "allow",
                     "target": "repo.maven.apache.org:443",
                     "tool": "maven",
                 },
+            )
+            proxy_entries.insert(
+                2,
                 {
                     "decision": "allow",
                     "target": "repo.maven.apache.org:443",
                     "tool": "gradle",
                 },
-                {"decision": "deny", "target": "github.com:443"},
-                {"decision": "deny", "target": "api.github.com:443"},
-                {
-                    "decision": "deny",
-                    "target": "raw.githubusercontent.com:443",
-                },
-                {"decision": "deny", "target": "github.com:443", "tool": "git"},
-            ],
-        )
+            )
+        _append_proxy_access_log(service, proxy_entries)
         _append_blocked_egress_log(
             service,
             [
@@ -503,8 +552,9 @@ def _run_provider_smoke(
         )
         print("[smoke] Andvari egress probes enabled")
         print("[smoke] egress probe allowed: https://example.com")
-        print("[smoke] egress probe allowed: maven dependency resolution")
-        print("[smoke] egress probe allowed: gradle dependency resolution")
+        if provider != "claude":
+            print("[smoke] egress probe allowed: maven dependency resolution")
+            print("[smoke] egress probe allowed: gradle dependency resolution")
         print("[smoke] egress probe blocked: https://github.com")
         print("[smoke] egress probe blocked: https://api.github.com")
         print(
@@ -685,7 +735,13 @@ def _run_andvari(
     step: str, container: _ContainerMounts, manifest: dict[str, Any], mode: str
 ) -> None:
     run_root = container.resolve("/run")
-    provider_state = run_root / "provider-state" / "codex-home" / "sessions"
+    provider = str(manifest.get("adapter", "codex"))
+    provider_home = run_root / "provider-state" / (
+        "claude-home" if provider == "claude" else "codex-home"
+    )
+    provider_state = (
+        provider_home if provider == "claude" else provider_home / "sessions"
+    )
     service_runtime = run_root / "service-runtime"
     runner_internal = run_root / "runner-internal" / str(manifest.get("run_id", "run"))
     generated_repo = run_root / "artifacts" / "generated-repo"
@@ -697,7 +753,12 @@ def _run_andvari(
     generated_repo.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
-    (provider_state / "auth-state.json").write_text("authenticated\n", encoding="utf-8")
+    if provider == "claude":
+        (provider_state / "settings.json").write_text("{}", encoding="utf-8")
+    else:
+        (provider_state / "auth-state.json").write_text(
+            "authenticated\n", encoding="utf-8"
+        )
     (service_runtime / "active-provider.pid").write_text("1234\n", encoding="utf-8")
     (runner_internal / "run.log").write_text("runner internals\n", encoding="utf-8")
     (generated_repo / "README.md").write_text("generated repo\n", encoding="utf-8")

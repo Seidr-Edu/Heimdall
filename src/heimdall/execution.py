@@ -7,7 +7,14 @@ from pathlib import Path
 
 from heimdall.images import ensure_docker_available, resolve_images
 from heimdall.manifests.pipeline import load_pipeline_manifest
-from heimdall.models import PipelineConfig, Provider, PullPolicy, RuntimeConfig
+from heimdall.models import (
+    ClaudeAuthMode,
+    PipelineConfig,
+    Provider,
+    PullPolicy,
+    RuntimeConfig,
+)
+from heimdall.provider_runtime import provider_for_service
 from heimdall.runner import PreflightError, run_pipeline
 from heimdall.smoke import SMOKE_SERVICES, run_provider_smoke
 from heimdall.utils import ensure_directory
@@ -23,7 +30,9 @@ def build_runtime(
     *,
     andvari_internal_network_name: str,
     provider: Provider = "codex",
+    claude_auth_mode: ClaudeAuthMode = "oauth",
     claude_home_dir: Path | None = None,
+    claude_api_key_file: Path | None = None,
 ) -> RuntimeConfig:
     runs_root = runs_root.resolve()
     codex_bin_dir = codex_bin_dir.resolve()
@@ -45,8 +54,12 @@ def build_runtime(
         verbose=verbose,
         andvari_internal_network_name=andvari_internal_network_name,
         provider=provider,
+        claude_auth_mode=claude_auth_mode,
         claude_home_dir=claude_home_dir.resolve()
         if claude_home_dir is not None
+        else None,
+        claude_api_key_file=claude_api_key_file.resolve()
+        if claude_api_key_file is not None
         else None,
     )
 
@@ -138,12 +151,14 @@ def preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
 
 
 def _check_claude_home_dir(runtime: RuntimeConfig) -> None:
-    if runtime.provider != "claude":
+    if provider_for_service("andvari", runtime) != "claude":
+        return
+    if runtime.claude_auth_mode != "oauth":
         return
     if runtime.claude_home_dir is None:
         raise PreflightError(
             "claude_home_dir must be set in worker.yaml (or --claude-home-dir) "
-            "when provider is claude."
+            "when provider is claude and claude_auth_mode is oauth."
         )
     if not runtime.claude_home_dir.is_dir():
         raise PreflightError(
@@ -152,10 +167,9 @@ def _check_claude_home_dir(runtime: RuntimeConfig) -> None:
 
 
 def check_provider_login(runtime: RuntimeConfig) -> None:
-    if runtime.provider == "claude":
+    check_codex_login(runtime)
+    if provider_for_service("andvari", runtime) == "claude":
         _check_claude_credentials(runtime)
-    else:
-        check_codex_login(runtime)
 
 
 def check_codex_login(runtime: RuntimeConfig) -> None:
@@ -181,6 +195,9 @@ def _check_claude_credentials(runtime: RuntimeConfig) -> None:
     claude_executable = runtime.codex_host_bin_dir / "claude"
     if not claude_executable.is_file():
         raise PreflightError(f"Missing claude executable: {claude_executable}")
+    if runtime.claude_auth_mode == "api-key-file":
+        _check_claude_api_key_file(runtime)
+        return
     home = runtime.claude_home_dir or runtime.codex_home_dir
     credentials_path = home / "credentials.json"
     if not credentials_path.is_file():
@@ -196,6 +213,28 @@ def _check_claude_credentials(runtime: RuntimeConfig) -> None:
         ) from exc
     if not content.strip():
         raise PreflightError(f"Claude credentials file is empty: {credentials_path}")
+
+
+def _check_claude_api_key_file(runtime: RuntimeConfig) -> None:
+    if runtime.claude_api_key_file is None:
+        raise PreflightError(
+            "claude_api_key_file must be set in worker.yaml (or --claude-api-key-file) "
+            "when provider is claude and claude_auth_mode is api-key-file."
+        )
+    if not runtime.claude_api_key_file.is_file():
+        raise PreflightError(
+            f"Claude API key file does not exist: {runtime.claude_api_key_file}"
+        )
+    try:
+        content = runtime.claude_api_key_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise PreflightError(
+            f"Failed to read Claude API key file {runtime.claude_api_key_file}: {exc}"
+        ) from exc
+    if not content.strip():
+        raise PreflightError(
+            f"Claude API key file is empty: {runtime.claude_api_key_file}"
+        )
 
 
 def validate_andvari_proxy_runtime(runtime: RuntimeConfig) -> None:

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from heimdall.execution import (
+    _check_claude_home_dir as _check_claude_home_dir,
     build_runtime,
     resume_run_root,
     run_pipeline_manifest_path,
@@ -185,7 +186,24 @@ def _add_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--claude-home-dir",
         type=Path,
-        help="Claude home dir (credentials.json, settings.json). Required when --provider claude.",
+        help=(
+            "Claude home dir (credentials.json, settings.json). Required when "
+            "--provider claude and --claude-auth-mode oauth."
+        ),
+    )
+    parser.add_argument(
+        "--claude-auth-mode",
+        choices=("oauth", "api-key-file"),
+        default="oauth",
+        help="Claude auth mode for Andvari when --provider claude (default: oauth)",
+    )
+    parser.add_argument(
+        "--claude-api-key-file",
+        type=Path,
+        help=(
+            "Path to a file containing the Claude API key. Required when "
+            "--provider claude and --claude-auth-mode api-key-file."
+        ),
     )
     parser.add_argument(
         "--provider",
@@ -220,7 +238,9 @@ def _run_command(args: argparse.Namespace) -> int:
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
         provider=args.provider,
+        claude_auth_mode=args.claude_auth_mode,
         claude_home_dir=args.claude_home_dir,
+        claude_api_key_file=args.claude_api_key_file,
     )
     run_pipeline_manifest_path(args.pipeline_manifest, runtime)
     return 0
@@ -236,7 +256,9 @@ def _resume_command(args: argparse.Namespace) -> int:
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
         provider=args.provider,
+        claude_auth_mode=args.claude_auth_mode,
         claude_home_dir=args.claude_home_dir,
+        claude_api_key_file=args.claude_api_key_file,
     )
     resume_run_root(args.run_dir, runtime)
     return 0
@@ -258,7 +280,9 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
         provider=args.provider,
+        claude_auth_mode=args.claude_auth_mode,
         claude_home_dir=args.claude_home_dir,
+        claude_api_key_file=args.claude_api_key_file,
     )
     _preflight_provider_smoke(runtime, output_dir)
     if runtime.verbose:
@@ -366,6 +390,7 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
         raise PreflightError(
             f"Provider home dir does not exist: {runtime.codex_home_dir}"
         )
+    _check_claude_home_dir(runtime)
     validate_andvari_proxy_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:

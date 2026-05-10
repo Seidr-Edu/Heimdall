@@ -6,6 +6,7 @@ from typing import Literal
 
 PullPolicy = Literal["if-missing", "always", "never"]
 Provider = Literal["codex", "claude"]
+ClaudeAuthMode = Literal["oauth", "api-key-file"]
 StepStatus = Literal[
     "pending", "running", "passed", "failed", "error", "blocked", "skipped"
 ]
@@ -146,7 +147,9 @@ class RuntimeConfig:
     verbose: bool = False
     andvari_internal_network_name: str = ""
     provider: Provider = "codex"
+    claude_auth_mode: ClaudeAuthMode = "oauth"
     claude_home_dir: Path | None = None
+    claude_api_key_file: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -165,7 +168,9 @@ class WorkerConfig:
     lidskjalv: LidskjalvConfig
     andvari_internal_network_name: str = ""
     provider: Provider = "codex"
+    claude_auth_mode: ClaudeAuthMode = "oauth"
     claude_home_dir: Path | None = None
+    claude_api_key_file: Path | None = None
 
 
 @dataclass(frozen=True)
