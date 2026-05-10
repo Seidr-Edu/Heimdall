@@ -20,6 +20,7 @@ _CLAUDE_API_KEY_HELPER_RUNTIME_PATH = (
     f"/run/provider-state/claude-home/{_CLAUDE_API_KEY_HELPER_NAME}"
 )
 _CLAUDE_ANDVARI_MODEL = "claude-sonnet-4-6"
+_CLAUDE_DENIED_TOOLS = ("WebSearch", "WebFetch")
 
 _MINIMAL_ANDVARI_CODEX_SEED_RELPATHS = ("auth.json", "config.toml", "skills/.system")
 _MINIMAL_ANDVARI_CLAUDE_SEED_RELPATHS = ("credentials.json", "settings.json")
@@ -153,6 +154,7 @@ def stage_andvari_claude_api_key_seed(destination_seed: Path) -> None:
             {
                 "apiKeyHelper": _CLAUDE_API_KEY_HELPER_RUNTIME_PATH,
                 "model": _CLAUDE_ANDVARI_MODEL,
+                "permissions": {"deny": list(_CLAUDE_DENIED_TOOLS)},
             },
             indent=2,
         )
@@ -193,6 +195,17 @@ def sanitize_andvari_claude_seed(
         return
     payload.pop("mcpServers", None)
     payload["model"] = _CLAUDE_ANDVARI_MODEL
+    permissions = payload.get("permissions")
+    if not isinstance(permissions, dict):
+        permissions = {}
+    deny_rules = permissions.get("deny")
+    if not isinstance(deny_rules, list):
+        deny_rules = []
+    for denied_tool in _CLAUDE_DENIED_TOOLS:
+        if denied_tool not in deny_rules:
+            deny_rules.append(denied_tool)
+    permissions["deny"] = deny_rules
+    payload["permissions"] = permissions
     try:
         settings_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:

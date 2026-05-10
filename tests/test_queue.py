@@ -178,6 +178,10 @@ class QueueIntegrationTest(unittest.TestCase):
             "/run/provider-state/claude-home/api-key-helper.sh",
         )
         self.assertEqual(andvari_settings["model"], "claude-sonnet-4-6")
+        self.assertEqual(
+            andvari_settings["permissions"]["deny"],
+            ["WebSearch", "WebFetch"],
+        )
         self.assertIn("settings.json", runs["andvari"]["provider_seed_entries"])
         self.assertIn("api-key-helper.sh", runs["andvari"]["provider_seed_entries"])
         self.assertNotIn("credentials.json", runs["andvari"]["provider_seed_entries"])

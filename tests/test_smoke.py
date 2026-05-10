@@ -389,6 +389,10 @@ enabled = true
         )
         self.assertEqual(andvari_settings["model"], "claude-sonnet-4-6")
         self.assertEqual(
+            andvari_settings["permissions"]["deny"],
+            ["WebSearch", "WebFetch"],
+        )
+        self.assertEqual(
             run_by_step["smoke-andvari"]["provider_seed_entries"],
             ["api-key-helper.sh", "settings.json"],
         )

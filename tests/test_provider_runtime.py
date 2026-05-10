@@ -33,6 +33,7 @@ class ProviderRuntimeTest(unittest.TestCase):
             "/run/provider-state/claude-home/api-key-helper.sh",
         )
         self.assertEqual(settings["model"], "claude-sonnet-4-6")
+        self.assertEqual(settings["permissions"]["deny"], ["WebSearch", "WebFetch"])
         self.assertTrue((destination_seed / "api-key-helper.sh").is_file())
 
     def test_sanitize_andvari_claude_seed_removes_mcp_servers_and_pins_model(
@@ -45,6 +46,10 @@ class ProviderRuntimeTest(unittest.TestCase):
                 {
                     "theme": "dark",
                     "model": "claude-3-legacy",
+                    "permissions": {
+                        "allow": ["Bash(git diff:*)"],
+                        "deny": ["Read(./.env)"],
+                    },
                     "mcpServers": {"demo": {"command": "python3"}},
                 }
             )
@@ -59,4 +64,9 @@ class ProviderRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(settings["theme"], "dark")
         self.assertEqual(settings["model"], "claude-sonnet-4-6")
+        self.assertEqual(settings["permissions"]["allow"], ["Bash(git diff:*)"])
+        self.assertEqual(
+            settings["permissions"]["deny"],
+            ["Read(./.env)", "WebSearch", "WebFetch"],
+        )
         self.assertNotIn("mcpServers", settings)
