@@ -12,3 +12,7 @@ build/
 *.egg-info/
 runs/
 proxy/
+.claude/
+.codex-staging
+.mypy_cache/
+.ruff_cache/
