@@ -91,7 +91,7 @@ def build_step_manifest_payload(
         return {
             "version": 1,
             "run_id": context.config.run_id,
-            "adapter": "codex",
+            "adapter": context.runtime.provider,
             "gating_mode": context.config.andvari.gating_mode,
             "max_iter": context.config.andvari.max_iter,
             "max_gate_revisions": context.config.andvari.max_gate_revisions,
@@ -154,12 +154,18 @@ def build_step_manifest_payload(
         "run_id": context.config.run_id,
         "scan_label": scan_label,
         "project_key": _lidskjalv_project_key(
-            target_config.project_key, defaults["generated_key"], step
+            target_config.project_key,
+            defaults["generated_key"],
+            step,
+            context.runtime.provider,
         )
         if generated
         else target_config.project_key or defaults["original_key"],
         "project_name": _lidskjalv_project_name(
-            target_config.project_name, defaults["generated_name"], step
+            target_config.project_name,
+            defaults["generated_name"],
+            step,
+            context.runtime.provider,
         )
         if generated
         else target_config.project_name or defaults["original_name"],
@@ -314,16 +320,22 @@ def _lidskjalv_scan_label(step: str) -> str:
     return "generated" if not suffix else f"generated-{suffix}"
 
 
-def _lidskjalv_project_key(configured: str | None, default: str, step: str) -> str:
+def _lidskjalv_project_key(
+    configured: str | None, default: str, step: str, provider: str
+) -> str:
     suffix = _branch_suffix(step)
     base = configured or default
-    return base if not suffix else f"{base}_{suffix}"
+    qualified = base if not suffix else f"{base}_{suffix}"
+    return f"{qualified}_{provider}"
 
 
-def _lidskjalv_project_name(configured: str | None, default: str, step: str) -> str:
+def _lidskjalv_project_name(
+    configured: str | None, default: str, step: str, provider: str
+) -> str:
     suffix = _branch_suffix(step)
     base = configured or default
-    return base if not suffix else f"{base} {suffix}"
+    qualified = base if not suffix else f"{base} {suffix}"
+    return f"{qualified} {provider}"
 
 
 def _service_dir_for_step(step: str) -> str:

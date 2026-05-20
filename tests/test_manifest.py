@@ -31,6 +31,7 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(config.kvasir.runner_timeout_sec, 7200)
         self.assertTrue(config.eitri.writers["plantuml"]["hidePrivate"])
         self.assertEqual(config.images.mimir, "fake/mimir:1")
+        self.assertEqual(config.lidskjalv.execution_timeout_sec, 7200)
         self.assertEqual(config.lidskjalv.sonar_wait_timeout_sec, 300)
         self.assertEqual(config.lidskjalv.sonar_wait_poll_sec, 5)
 
@@ -71,6 +72,18 @@ class ManifestTest(unittest.TestCase):
 
         self.assertEqual(config.lidskjalv.sonar_wait_timeout_sec, 1)
         self.assertEqual(config.lidskjalv.sonar_wait_poll_sec, 0)
+
+    def test_accepts_lidskjalv_execution_timeout_override(self) -> None:
+        source = build_pipeline_manifest().replace(
+            "lidskjalv:\n  skip_sonar: true\n",
+            "lidskjalv:\n  skip_sonar: true\n  execution_timeout_sec: 42\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "pipeline.yaml"
+            write_file(manifest_path, source)
+            _raw, config = load_pipeline_manifest(manifest_path)
+
+        self.assertEqual(config.lidskjalv.execution_timeout_sec, 42)
 
 
 if __name__ == "__main__":

@@ -44,6 +44,12 @@ from heimdall.models import (
     StepPrepared,
     StepStatus,
 )
+from heimdall.provider_runtime import (
+    CODEX_CONTAINER_SEED_PATH,
+    extra_mounts_for_service,
+    provider_home_dir_for_service,
+    provider_seed_container_path_for_service,
+)
 from heimdall.reporting import load_report
 from heimdall.simpleyaml import dumps
 from heimdall.utils import ensure_directory, write_text
@@ -260,13 +266,23 @@ def prepare_step(
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(provider_bin_dir, "/opt/provider/bin", True),
-            DockerMount(provider_seed_dir, "/opt/provider-seed/codex-home", True),
+            DockerMount(
+                provider_seed_dir,
+                provider_seed_container_path_for_service(step, context.runtime),
+                True,
+            ),
+            *(
+                DockerMount(host_path, container_path, read_only)
+                for host_path, container_path, read_only in extra_mounts_for_service(
+                    step, context.runtime
+                )
+            ),
         )
         image_ref = context.config.images.andvari
         resolved_image_id = context.resolved_images.andvari
         provider_bin_source = context.runtime.codex_bin_dir
         provider_bin_dest = provider_bin_dir
-        provider_seed_source = context.runtime.codex_home_dir
+        provider_seed_source = provider_home_dir_for_service(step, context.runtime)
         provider_seed_dest = provider_seed_dir
     elif step in KVASIR_STEPS:
         payload = build_step_manifest_payload(step, context)
@@ -296,7 +312,7 @@ def prepare_step(
             DockerMount(config_dir, "/run/config", True),
             DockerMount(run_dir, "/run", False),
             DockerMount(provider_bin_dir, "/opt/provider/bin", True),
-            DockerMount(provider_seed_dir, "/opt/provider-seed/codex-home", True),
+            DockerMount(provider_seed_dir, CODEX_CONTAINER_SEED_PATH, True),
         )
         image_ref = context.config.images.kvasir
         resolved_image_id = context.resolved_images.kvasir

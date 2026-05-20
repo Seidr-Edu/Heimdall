@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Literal
 
 PullPolicy = Literal["if-missing", "always", "never"]
+Provider = Literal["codex", "claude"]
+ClaudeAuthMode = Literal["oauth", "api-key-file"]
 StepStatus = Literal[
     "pending", "running", "passed", "failed", "error", "blocked", "skipped"
 ]
@@ -113,6 +115,7 @@ class LidskjalvTargetConfig:
 @dataclass(frozen=True)
 class LidskjalvConfig:
     skip_sonar: bool = False
+    execution_timeout_sec: int = 1800
     sonar_wait_timeout_sec: int = 300
     sonar_wait_poll_sec: int = 5
     original: LidskjalvTargetConfig = field(default_factory=LidskjalvTargetConfig)
@@ -143,6 +146,10 @@ class RuntimeConfig:
     sonar_organization: str | None
     verbose: bool = False
     andvari_internal_network_name: str = ""
+    provider: Provider = "codex"
+    claude_auth_mode: ClaudeAuthMode = "oauth"
+    claude_home_dir: Path | None = None
+    claude_api_key_file: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +167,10 @@ class WorkerConfig:
     kvasir: KvasirConfig
     lidskjalv: LidskjalvConfig
     andvari_internal_network_name: str = ""
+    provider: Provider = "codex"
+    claude_auth_mode: ClaudeAuthMode = "oauth"
+    claude_home_dir: Path | None = None
+    claude_api_key_file: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +182,7 @@ class QueueRequest:
     kvasir: dict[str, object] = field(default_factory=dict)
     lidskjalv: dict[str, object] = field(default_factory=dict)
     version: int = 1
+    provider: Provider = "codex"
 
 
 @dataclass(frozen=True)

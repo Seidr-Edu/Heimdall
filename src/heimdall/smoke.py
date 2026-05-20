@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
@@ -23,12 +25,18 @@ from heimdall.models import PipelineConfig, RuntimeConfig
 from heimdall.provider_runtime import (
     docker_network_for_step,
     env_for_step,
+    extra_mounts_for_service,
+    provider_for_service,
+    provider_home_dir_for_service,
+    provider_home_subdir_for_service,
+    provider_seed_container_path_for_service,
     stage_provider_seed,
 )
 from heimdall.utils import (
     compact_run_id,
     ensure_directory,
     stage_executable_tree,
+    stage_readable_file,
     timestamp_utc,
     write_text,
 )
@@ -41,13 +49,14 @@ SMOKE_INPUT_CONTENT = "heimdall-provider-smoke\n"
 class HostInfo(TypedDict):
     platform: str
     python_version: str
-    codex_host_bin_dir: str
-    codex_container_bin_dir: str
-    codex_home_dir: str
-    host_codex_executable: str
-    host_codex_binary_format: str
-    container_codex_executable: str
-    container_codex_binary_format: str
+    provider: str
+    provider_host_bin_dir: str
+    provider_container_bin_dir: str
+    provider_home_dir: str
+    host_provider_executable: str
+    host_provider_binary_format: str
+    container_provider_executable: str
+    container_provider_binary_format: str
     compatibility_hint: str | None
 
 
@@ -63,7 +72,7 @@ class ServiceProbeResult(TypedDict):
     provider_bin_dir: str
     provider_seed_dir: str
     probe_input_dir: str
-    runtime_codex_home: str
+    runtime_provider_home: str
     proxy_access_log_path: str | None
     egress_block_log_path: str | None
 
@@ -131,26 +140,28 @@ def run_provider_smoke(
 
 
 def _host_info(runtime: RuntimeConfig) -> HostInfo:
-    host_codex_executable = (runtime.codex_host_bin_dir / "codex").resolve()
-    host_binary_format = _detect_binary_format(host_codex_executable)
-    container_codex_executable = (runtime.codex_bin_dir / "codex").resolve()
-    container_binary_format = _detect_binary_format(container_codex_executable)
+    binary_name = "claude" if runtime.provider == "claude" else "codex"
+    host_executable = (runtime.codex_host_bin_dir / binary_name).resolve()
+    host_binary_format = _detect_binary_format(host_executable)
+    container_executable = (runtime.codex_bin_dir / binary_name).resolve()
+    container_binary_format = _detect_binary_format(container_executable)
     info: HostInfo = {
         "platform": platform.platform(),
         "python_version": sys.version.split()[0],
-        "codex_host_bin_dir": str(runtime.codex_host_bin_dir),
-        "codex_container_bin_dir": str(runtime.codex_bin_dir),
-        "codex_home_dir": str(runtime.codex_home_dir),
-        "host_codex_executable": str(host_codex_executable),
-        "host_codex_binary_format": host_binary_format,
-        "container_codex_executable": str(container_codex_executable),
-        "container_codex_binary_format": container_binary_format,
+        "provider": runtime.provider,
+        "provider_host_bin_dir": str(runtime.codex_host_bin_dir),
+        "provider_container_bin_dir": str(runtime.codex_bin_dir),
+        "provider_home_dir": str(provider_home_dir_for_service("andvari", runtime)),
+        "host_provider_executable": str(host_executable),
+        "host_provider_binary_format": host_binary_format,
+        "container_provider_executable": str(container_executable),
+        "container_provider_binary_format": container_binary_format,
         "compatibility_hint": None,
     }
     if container_binary_format.startswith("mach-o"):
         info["compatibility_hint"] = (
-            "The container-facing Codex binary is Mach-O, which is usually not "
-            "executable inside Linux service containers."
+            f"The container-facing {binary_name} binary is Mach-O, which is usually "
+            "not executable inside Linux service containers."
         )
     return info
 
@@ -176,7 +187,11 @@ def _run_service_probe(
     provider_bin_dir = service_root / "input" / "provider-bin"
     provider_seed_dir = service_root / "input" / "provider-seed"
     probe_input_dir = service_root / "input" / "probe-input"
-    runtime_codex_home = run_dir / "provider-state" / "codex-home"
+    service_provider = provider_for_service(service, runtime)
+    _service_home_dir = provider_home_dir_for_service(service, runtime)
+    _seed_container_path = provider_seed_container_path_for_service(service, runtime)
+    provider_home_subdir = provider_home_subdir_for_service(service, runtime)
+    runtime_provider_home = run_dir / "provider-state" / provider_home_subdir
     proxy_log_artifact_path = (
         smoke_proxy_access_artifact_path(services_dir.parent, service)
         if uses_andvari_proxy_runtime(service)
@@ -205,7 +220,7 @@ def _run_service_probe(
         "provider_bin_dir": str(provider_bin_dir),
         "provider_seed_dir": str(provider_seed_dir),
         "probe_input_dir": str(probe_input_dir),
-        "runtime_codex_home": str(runtime_codex_home),
+        "runtime_provider_home": str(runtime_provider_home),
         "proxy_access_log_path": (
             str(proxy_log_artifact_path)
             if proxy_log_artifact_path is not None
@@ -221,7 +236,7 @@ def _run_service_probe(
     stage_conflict = _stage_conflict(runtime.codex_bin_dir, provider_bin_dir)
     if stage_conflict is not None:
         detail = (
-            f"Refusing to stage codex bin dir {runtime.codex_bin_dir} into "
+            f"Refusing to stage provider bin dir {runtime.codex_bin_dir} into "
             f"{provider_bin_dir}: {stage_conflict}"
         )
         write_text(log_path, f"{detail}\n")
@@ -231,10 +246,10 @@ def _run_service_probe(
             "detail": detail,
         }
 
-    stage_conflict = _stage_conflict(runtime.codex_home_dir, provider_seed_dir)
+    stage_conflict = _stage_conflict(_service_home_dir, provider_seed_dir)
     if stage_conflict is not None:
         detail = (
-            f"Refusing to stage codex home dir {runtime.codex_home_dir} into "
+            f"Refusing to stage provider home dir {_service_home_dir} into "
             f"{provider_seed_dir}: {stage_conflict}"
         )
         write_text(log_path, f"{detail}\n")
@@ -270,7 +285,7 @@ def _run_service_probe(
         }
 
     try:
-        stage_provider_seed(service, runtime.codex_home_dir, provider_seed_dir, runtime)
+        stage_provider_seed(service, _service_home_dir, provider_seed_dir, runtime)
     except RuntimeError as exc:
         detail = str(exc)
         write_text(log_path, f"{detail}\n")
@@ -281,12 +296,16 @@ def _run_service_probe(
             "detail": detail,
         }
 
-    container_env = {"HEIMDALL_SMOKE_SERVICE": service}
+    container_env = {
+        "HEIMDALL_SMOKE_SERVICE": service,
+        "HEIMDALL_SMOKE_PROVIDER": service_provider,
+    }
     container_env.update(env_for_step(service, runtime))
     if uses_andvari_proxy_runtime(service):
         container_env["HEIMDALL_ANDVARI_EGRESS_ENFORCED"] = "1"
     proxy_capture: ProxyAccessCapture | None = None
     blocked_egress_capture: ProxyAccessCapture | None = None
+    mount_staging_dir: Path | None = None
     try:
         proxy_capture = begin_proxy_access_capture(service, proxy_log_artifact_path)
         blocked_egress_capture = begin_blocked_egress_capture(
@@ -305,28 +324,35 @@ def _run_service_probe(
 
     failure_result: ServiceProbeResult | None = None
     try:
+        mount_staging_dir = Path(
+            tempfile.mkdtemp(prefix=f"heimdall-smoke-mounts-{service}-")
+        ).resolve()
         run_container(
             image_ref,
             container_env,
-            [
-                (provider_bin_dir, "/opt/provider/bin", True),
-                (provider_seed_dir, "/opt/provider-seed/codex-home", True),
-                (probe_input_dir, "/input", True),
-                (run_dir, "/run", False),
-            ],
+            _stage_regular_file_mounts(
+                [
+                    (provider_bin_dir, "/opt/provider/bin", True),
+                    (provider_seed_dir, _seed_container_path, True),
+                    (probe_input_dir, "/input", True),
+                    (run_dir, "/run", False),
+                    *extra_mounts_for_service(service, runtime),
+                ],
+                mount_staging_dir,
+            ),
             network_name=docker_network_for_step(service, runtime),
             stream_output=runtime.verbose,
             output_path=log_path,
             log_prefix=f"smoke-{service}" if runtime.verbose else None,
             entrypoint="/bin/bash",
-            command_args=["-lc", _provider_probe_script()],
+            command_args=["-lc", _probe_script_for_provider(service_provider)],
         )
     except DockerError as exc:
         log_text = _read_log_text(log_path)
         probe_output = log_text or str(exc)
-        reason = _classify_probe_failure(probe_output)
+        reason = _classify_probe_failure(probe_output, service_provider)
         detail = _summarize_probe_failure(probe_output, reason)
-        hint = _probe_failure_hint(reason, runtime)
+        hint = _probe_failure_hint(reason, runtime, service_provider)
         _append_log(log_path, f"\n[heimdall][smoke] classified reason: {reason}\n")
         if hint is not None:
             _append_log(log_path, f"[heimdall][smoke] hint: {hint}\n")
@@ -337,16 +363,17 @@ def _run_service_probe(
             "detail": detail,
             "hint": hint,
         }
-    if failure_result is None and not runtime_codex_home.is_dir():
+    if failure_result is None and not runtime_provider_home.is_dir():
         detail = (
-            "Probe finished without creating /run/provider-state/codex-home inside "
+            f"Probe finished without creating "
+            f"/run/provider-state/{provider_home_subdir} inside "
             "the service run directory."
         )
         _append_log(log_path, f"\n[heimdall][smoke] {detail}\n")
         failure_result = {
             **base_result,
             "resolved_image_id": resolved_image_id,
-            "reason": "runtime-codex-home-not-created",
+            "reason": "runtime-provider-home-not-created",
             "detail": detail,
         }
     proxy_capture_error = _finalize_proxy_capture(
@@ -356,6 +383,8 @@ def _run_service_probe(
         blocked_egress_artifact_path,
         log_path,
     )
+    if mount_staging_dir is not None:
+        shutil.rmtree(mount_staging_dir, ignore_errors=True)
     if proxy_capture_error is not None:
         reason = getattr(
             proxy_capture_error, "reason", "proxy-access-log-capture-failed"
@@ -375,6 +404,130 @@ def _run_service_probe(
         "status": "passed",
         "resolved_image_id": resolved_image_id,
     }
+
+
+def _probe_script_for_provider(provider: str) -> str:
+    if provider == "claude":
+        return _claude_probe_script()
+    return _provider_probe_script()
+
+
+def _claude_probe_script() -> str:
+    return """
+set -Eeuo pipefail
+trap 'status=$?; echo "[smoke][error] command failed: ${BASH_COMMAND} (exit ${status})" >&2; exit ${status}' ERR
+
+require_tool() {
+  local tool="$1"
+  if ! command -v "${tool}" >/dev/null 2>&1; then
+    echo "[smoke][error] required tool unavailable: ${tool}" >&2
+    exit 1
+  fi
+}
+
+expect_blocked() {
+  local label="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then
+    echo "[smoke][error] egress probe unexpectedly succeeded: ${label}" >&2
+    exit 1
+  fi
+  echo "[smoke] egress probe blocked: ${label}"
+}
+
+resolve_python() {
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return 0
+  fi
+  echo "[smoke][error] required tool unavailable: python3 or python" >&2
+  exit 1
+}
+
+echo "[smoke] service=${HEIMDALL_SMOKE_SERVICE:-unknown}"
+echo "[smoke] uname=$(uname -srm)"
+echo "[smoke] provider bin dir:"
+ls -la /opt/provider/bin
+echo "[smoke] provider seed highlights:"
+if [[ -d /opt/provider-seed/claude-home ]]; then
+  find /opt/provider-seed/claude-home -mindepth 1 -maxdepth 4 | LC_ALL=C sort
+else
+  echo "[smoke] provider seed dir missing"
+fi
+echo "[smoke] smoke input dir:"
+if [[ -d /input ]]; then
+  ls -la /input
+else
+  echo "[smoke] smoke input dir missing"
+fi
+
+runtime_dir=/run/provider-state/claude-home
+workspace_dir=/run/workspace
+prompt_file=/run/smoke-prompt.txt
+mkdir -p "${runtime_dir}"
+mkdir -p "${workspace_dir}"
+if [[ -d /opt/provider-seed/claude-home ]]; then
+  echo "[smoke] copying provider seed into ${runtime_dir}"
+  cp -R /opt/provider-seed/claude-home/. "${runtime_dir}/"
+fi
+
+export PATH="/opt/provider/bin:${PATH}"
+export CLAUDE_CONFIG_DIR="${runtime_dir}"
+echo "[smoke] PATH=${PATH}"
+echo "[smoke] CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR}"
+echo "[smoke] claude path:"
+command -v claude
+echo "[smoke] claude details:"
+ls -l "$(command -v claude)"
+echo "[smoke] claude version:"
+claude --version
+cat > "${prompt_file}" <<'PROMPT_EOF'
+You are running a Heimdall provider smoke test inside a Linux service container.
+Read /input/smoke.txt and create ./smoke-result.txt containing exactly the same contents.
+Do not modify any other files.
+When finished, reply with exactly SMOKE_OK.
+PROMPT_EOF
+echo "[smoke] claude smoke task:"
+cd "${workspace_dir}"
+claude \
+  --dangerously-skip-permissions \
+  --add-dir /input \
+  --output-format json \
+  -p "$(cat ${prompt_file})"
+if [[ ! -f "${workspace_dir}/smoke-result.txt" ]]; then
+  echo "[smoke][error] claude did not create ${workspace_dir}/smoke-result.txt" >&2
+  exit 1
+fi
+if ! cmp -s /input/smoke.txt "${workspace_dir}/smoke-result.txt"; then
+  echo "[smoke][error] claude created ${workspace_dir}/smoke-result.txt, but it did not match /input/smoke.txt" >&2
+  exit 1
+fi
+echo "[smoke] claude workspace probe passed"
+if [[ "${HEIMDALL_ANDVARI_EGRESS_ENFORCED:-0}" == "1" ]]; then
+  echo "[smoke] Andvari egress probes enabled"
+  require_tool curl
+  require_tool git
+  python_bin="$(resolve_python)"
+  curl -fsS --max-time 15 https://example.com >/dev/null
+  echo "[smoke] egress probe allowed: https://example.com"
+  expect_blocked "https://github.com" curl -fsS --max-time 15 https://github.com
+  expect_blocked "https://api.github.com" curl -fsS --max-time 15 https://api.github.com
+  expect_blocked \
+    "https://raw.githubusercontent.com/octocat/Hello-World/master/README" \
+    curl -fsS --max-time 15 https://raw.githubusercontent.com/octocat/Hello-World/master/README
+  expect_blocked \
+    "git ls-remote https://github.com/octocat/Hello-World.git" \
+    git ls-remote https://github.com/octocat/Hello-World.git HEAD
+  expect_blocked \
+    "python raw tcp github.com:22" \
+    "${python_bin}" -c "import socket; socket.create_connection(('github.com', 22), timeout=10).close()"
+fi
+echo "[smoke] provider smoke passed"
+""".strip()
 
 
 def _provider_probe_script() -> str:
@@ -552,23 +705,53 @@ echo "[smoke] provider smoke passed"
 """.strip()
 
 
-def _classify_probe_failure(detail: str) -> str:
+def _classify_probe_failure(detail: str, provider: str = "codex") -> str:
     lowered = detail.lower()
     if "exec format error" in lowered or "cannot execute binary file" in lowered:
-        return "codex-binary-incompatible-with-container"
-    if "command failed: command -v codex" in lowered or "codex: not found" in lowered:
-        return "codex-cli-unavailable-in-container"
-    if "command failed: codex login status" in lowered or "not logged in" in lowered:
-        return "codex-auth-unusable-in-container"
-    if (
-        "codex exec did not create /run/workspace/smoke-result.txt" in lowered
-        or "codex exec created /run/workspace/smoke-result.txt, but it did not match /input/smoke.txt"
-        in lowered
-        or ("command failed: codex exec" in lowered and "sandbox" in lowered)
-        or ("command failed: codex exec" in lowered and "/input/smoke.txt" in lowered)
-        or ("command failed: codex exec" in lowered and "/run/workspace" in lowered)
-    ):
-        return "codex-exec-workspace-access-failed"
+        return "provider-binary-incompatible-with-container"
+    if provider == "claude":
+        if (
+            "command failed: command -v claude" in lowered
+            or "claude: not found" in lowered
+        ):
+            return "provider-cli-unavailable-in-container"
+        if "authentication failed" in lowered or "invalid api key" in lowered:
+            return "claude-auth-unusable-in-container"
+        if (
+            "claude did not create /run/workspace/smoke-result.txt" in lowered
+            or "claude created /run/workspace/smoke-result.txt, but it did not match /input/smoke.txt"
+            in lowered
+            or ("command failed: claude" in lowered and "/input/smoke.txt" in lowered)
+            or ("command failed: claude" in lowered and "/run/workspace" in lowered)
+        ):
+            return "provider-exec-workspace-access-failed"
+        if "command failed: claude" in lowered:
+            return "provider-exec-failed"
+    else:
+        if (
+            "command failed: command -v codex" in lowered
+            or "codex: not found" in lowered
+        ):
+            return "provider-cli-unavailable-in-container"
+        if (
+            "command failed: codex login status" in lowered
+            or "not logged in" in lowered
+        ):
+            return "codex-auth-unusable-in-container"
+        if (
+            "codex exec did not create /run/workspace/smoke-result.txt" in lowered
+            or "codex exec created /run/workspace/smoke-result.txt, but it did not match /input/smoke.txt"
+            in lowered
+            or ("command failed: codex exec" in lowered and "sandbox" in lowered)
+            or (
+                "command failed: codex exec" in lowered
+                and "/input/smoke.txt" in lowered
+            )
+            or ("command failed: codex exec" in lowered and "/run/workspace" in lowered)
+        ):
+            return "provider-exec-workspace-access-failed"
+        if "command failed: codex exec" in lowered:
+            return "provider-exec-failed"
     if "permission denied" in lowered and "provider-seed" in lowered:
         return "provider-seed-unreadable-in-container"
     if "permission denied" in lowered and "provider/bin" in lowered:
@@ -579,8 +762,6 @@ def _classify_probe_failure(detail: str) -> str:
         or "required tool unavailable" in lowered
     ):
         return "andvari-proxy-probe-failed"
-    if "command failed: codex exec" in lowered:
-        return "codex-exec-failed"
     return "probe-command-failed"
 
 
@@ -588,32 +769,40 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
     lines = [line.strip() for line in probe_output.splitlines() if line.strip()]
     lowered = [line.lower() for line in lines]
 
-    if reason == "codex-binary-incompatible-with-container":
+    if reason == "provider-binary-incompatible-with-container":
         for index, line in enumerate(lowered):
             if "exec format error" in line or "cannot execute binary file" in line:
                 return lines[index]
-    if reason == "codex-cli-unavailable-in-container":
+    if reason == "provider-cli-unavailable-in-container":
         for index, line in enumerate(lowered):
-            if "codex: not found" in line or "command failed: command -v codex" in line:
+            if (
+                "codex: not found" in line
+                or "command failed: command -v codex" in line
+                or "claude: not found" in line
+                or "command failed: command -v claude" in line
+            ):
                 return lines[index]
     if reason == "codex-auth-unusable-in-container":
         for index, line in enumerate(lowered):
             if "not logged in" in line or "command failed: codex login status" in line:
                 return lines[index]
-    if reason == "codex-exec-workspace-access-failed":
+    if reason == "claude-auth-unusable-in-container":
+        for index, line in enumerate(lowered):
+            if "authentication failed" in line or "invalid api key" in line:
+                return lines[index]
+    if reason == "provider-exec-workspace-access-failed":
         for index, line in enumerate(lowered):
             if (
-                "codex exec did not create /run/workspace/smoke-result.txt" in line
-                or "codex exec created /run/workspace/smoke-result.txt, but it did not match /input/smoke.txt"
-                in line
+                "did not create /run/workspace/smoke-result.txt" in line
+                or "did not match /input/smoke.txt" in line
                 or "sandbox" in line
                 or "/input/smoke.txt" in line
                 or "/run/workspace" in line
             ):
                 return lines[index]
-    if reason == "codex-exec-failed":
+    if reason == "provider-exec-failed":
         for index, line in enumerate(lowered):
-            if "command failed: codex exec" in line:
+            if "command failed: codex exec" in line or "command failed: claude" in line:
                 return lines[index]
     if reason == "andvari-proxy-probe-failed":
         for index, line in enumerate(lowered):
@@ -631,46 +820,63 @@ def _summarize_probe_failure(probe_output: str, reason: str) -> str:
     return "Probe failed without producing any diagnostic output."
 
 
-def _probe_failure_hint(reason: str, runtime: RuntimeConfig) -> str | None:
-    binary_format = _detect_binary_format((runtime.codex_bin_dir / "codex").resolve())
-    if reason == "codex-binary-incompatible-with-container":
+def _probe_failure_hint(
+    reason: str, runtime: RuntimeConfig, provider: str
+) -> str | None:
+    binary_name = "claude" if provider == "claude" else "codex"
+    binary_format = _detect_binary_format(
+        (runtime.codex_bin_dir / binary_name).resolve()
+    )
+    if reason == "provider-binary-incompatible-with-container":
         if binary_format == "mach-o":
             return (
-                "Use a Linux ELF Codex binary in --codex-bin-dir, or run Heimdall on "
-                "a Linux host. A macOS Mach-O binary cannot execute inside Linux "
-                "service containers."
+                f"Use a Linux ELF {binary_name} binary in --codex-bin-dir, or run "
+                "Heimdall on a Linux host. A macOS Mach-O binary cannot execute "
+                "inside Linux service containers."
             )
         return (
-            "Use a Codex binary built for the Linux container architecture and point "
-            "--codex-bin-dir at a dedicated directory containing only that binary."
+            f"Use a {binary_name} binary built for the Linux container architecture "
+            "and point --codex-bin-dir at a dedicated directory containing only that binary."
         )
     if reason == "codex-auth-unusable-in-container":
         return (
             "The binary runs inside the container, but the staged CODEX_HOME does not "
             "authenticate there. Check auth.json/config.toml and rerun the smoke test."
         )
-    if reason == "codex-cli-unavailable-in-container":
+    if reason == "claude-auth-unusable-in-container":
         return (
-            "The staged provider bin is not exposing a runnable codex executable "
-            "inside the container. Use a dedicated bin directory containing only codex."
+            "The binary runs inside the container, but Claude auth is unusable there. "
+            "Confirm the staged settings.json points at the mounted secret helper and "
+            "the mounted API key file is readable inside the container."
         )
-    if reason == "codex-exec-workspace-access-failed":
+    if reason == "provider-cli-unavailable-in-container":
+        return (
+            f"The staged provider bin is not exposing a runnable {binary_name} executable "
+            f"inside the container. Use a dedicated bin directory containing only {binary_name}."
+        )
+    if reason == "provider-exec-workspace-access-failed":
+        if provider == "claude":
+            return (
+                "The binary and credentials work, but claude could not use the mounted "
+                "service workspace. Confirm the container image invokes claude with "
+                "--dangerously-skip-permissions and --add-dir for the required mounts."
+            )
         return (
             "The binary and auth work, but codex exec could not use the mounted "
             "service workspace. In service containers, use the same container-safe "
             "flags as Andvari/Kvasir: --dangerously-bypass-approvals-and-sandbox, "
             "--cd <workspace>, and any required --add-dir mounts."
         )
-    if reason == "codex-exec-failed":
+    if reason == "provider-exec-failed":
         return (
-            "codex exec started inside the container, but the smoke task did not "
+            f"{binary_name} started inside the container, but the smoke task did not "
             "complete. Inspect the per-service log for the exact stderr/stdout."
         )
     if reason == "andvari-proxy-probe-failed":
         return (
             "The Andvari smoke did not prove restricted egress. Confirm the Andvari "
-            "container is on the restricted Docker network, allowed HTTPS and Maven/"
-            "Gradle traffic work, GitHub HTTPS is denied, and raw bypasses like "
+            "container is on the restricted Docker network, allowed HTTPS traffic "
+            "works, GitHub HTTPS is denied, and raw bypasses like "
             "direct TCP to github.com:22 are blocked."
         )
     return None
@@ -734,6 +940,20 @@ def _write_probe_input(path: Path) -> None:
     write_text(path / "diagram.puml", "@startuml\nclass Smoke\n@enduml\n")
 
 
+def _stage_regular_file_mounts(
+    mounts: list[tuple[Path, str, bool]],
+    staging_root: Path,
+) -> list[tuple[Path, str, bool]]:
+    staged_mounts: list[tuple[Path, str, bool]] = []
+    for index, (host_path, container_path, read_only) in enumerate(mounts):
+        staged_host_path = host_path
+        if host_path.is_file():
+            staged_host_path = staging_root / f"mount-{index}" / host_path.name
+            stage_readable_file(host_path, staged_host_path)
+        staged_mounts.append((staged_host_path, container_path, read_only))
+    return staged_mounts
+
+
 def _stage_conflict(source: Path, destination: Path) -> str | None:
     source_resolved = source.resolve()
     destination_resolved = destination.resolve()
@@ -795,10 +1015,10 @@ def _render_summary(summary: SmokeSummary) -> str:
         f"- Started at: {summary['started_at']}",
         f"- Finished at: {summary['finished_at']}",
         f"- Host platform: `{host['platform']}`",
-        f"- Host preflight Codex executable: `{host['host_codex_executable']}`",
-        f"- Host preflight Codex binary format: `{host['host_codex_binary_format']}`",
-        f"- Container Codex executable: `{host['container_codex_executable']}`",
-        f"- Container Codex binary format: `{host['container_codex_binary_format']}`",
+        f"- Host preflight provider executable: `{host['host_provider_executable']}`",
+        f"- Host preflight provider binary format: `{host['host_provider_binary_format']}`",
+        f"- Container provider executable: `{host['container_provider_executable']}`",
+        f"- Container provider binary format: `{host['container_provider_binary_format']}`",
     ]
     compatibility_hint = host.get("compatibility_hint")
     if compatibility_hint is not None:

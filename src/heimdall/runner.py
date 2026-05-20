@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import tempfile
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from heimdall.andvari_proxy import (
     pipeline_blocked_egress_artifact_path,
     pipeline_proxy_access_artifact_path,
 )
-from heimdall.images import DockerError, run_container
+from heimdall.images import DockerError, DockerTimeoutError, run_container
 from heimdall.manifests.pipeline import pipeline_to_document, runtime_snapshot
 from heimdall.models import (
     STEP_EITRI,
@@ -37,6 +38,7 @@ from heimdall.models import (
     STEP_MIMIR,
     STEP_MIMIR_V2,
     STEP_MIMIR_V3,
+    DockerMount,
     PipelineConfig,
     ResolvedImages,
     RuntimeConfig,
@@ -56,6 +58,7 @@ from heimdall.state import StateStore, fingerprint_step, hash_file, load_existin
 from heimdall.utils import (
     ensure_directory,
     stage_executable_tree,
+    stage_readable_file,
     timestamp_utc,
     write_text,
 )
@@ -354,6 +357,7 @@ def _execute_step(
     blocked_egress_capture = None
     blocked_egress_artifact_path: Path | None = None
     result: StepResult | None = None
+    mount_staging_dir: Path | None = None
     try:
         prepared = prepare_step(step, context)
         fingerprint = _fingerprint_for_prepared_step(
@@ -391,17 +395,26 @@ def _execute_step(
             prepared.report_path.unlink(missing_ok=True)
         container_env = dict(prepared.env)
         container_env.update(env_for_step(step, context.runtime))
+        mount_staging_dir = Path(
+            tempfile.mkdtemp(prefix=f"heimdall-mounts-{step}-")
+        ).resolve()
+        container_mounts = _stage_regular_file_mounts(
+            prepared.mounts,
+            mount_staging_dir,
+        )
         run_container(
             prepared.configured_image_ref,
             container_env,
             [
-                (mount.host_path, mount.container_path, mount.read_only)
-                for mount in prepared.mounts
+                (host_path, container_path, read_only)
+                for host_path, container_path, read_only in container_mounts
             ],
             network_name=docker_network_for_step(step, context.runtime),
             stream_output=context.runtime.verbose,
             output_path=log_path,
             log_prefix=step if context.runtime.verbose else None,
+            timeout_sec=_step_execution_timeout_sec(step, context.config),
+            timeout_reason="lidskjalv-timeout",
         )
     except ProxyAccessError as exc:
         finished_at = timestamp_utc()
@@ -416,6 +429,41 @@ def _execute_step(
             prepared=prepared,
             fingerprint=fingerprint,
         )
+    except DockerTimeoutError as exc:
+        finished_at = timestamp_utc()
+        _append_step_exception_log(log_path, exc)
+        proxy_capture_error = _finalize_proxy_captures(
+            proxy_capture,
+            proxy_artifact_path,
+            blocked_egress_capture,
+            blocked_egress_artifact_path,
+            log_path,
+        )
+        if prepared is not None and prepared.report_path.is_file():
+            result = _result_from_report_path(
+                step=step,
+                prepared=prepared,
+                fingerprint=fingerprint,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+            result.status = "error"
+            result.reason = exc.reason
+        else:
+            result = _execution_error_result(
+                step=step,
+                context=context,
+                runtime_view=runtime_view,
+                started_at=started_at,
+                finished_at=finished_at,
+                reason=exc.reason,
+                prepared=prepared,
+                fingerprint=fingerprint,
+            )
+        if proxy_capture_error is not None:
+            _apply_proxy_capture_failure(result)
     except DockerError as exc:
         finished_at = timestamp_utc()
         _append_step_exception_log(log_path, exc)
@@ -506,6 +554,8 @@ def _execute_step(
         if proxy_capture_error is not None:
             _apply_proxy_capture_failure(result)
     finally:
+        if mount_staging_dir is not None:
+            _remove_cleanup_path(mount_staging_dir, log_path)
         if prepared is not None:
             _cleanup_executed_step_runtime(prepared, log_path)
 
@@ -704,6 +754,15 @@ def _append_step_exception_log(log_path: Path, exc: Exception) -> None:
         handle.write(f"\n[heimdall][error] {detail}\n")
 
 
+def _step_execution_timeout_sec(step: str, config: PipelineConfig) -> float | None:
+    if not step.startswith("lidskjalv-"):
+        return None
+    timeout_sec = config.lidskjalv.execution_timeout_sec
+    if timeout_sec <= 0:
+        return None
+    return float(timeout_sec)
+
+
 def _cleanup_executed_step_runtime(prepared: StepPrepared, log_path: Path) -> None:
     seen: set[str] = set()
     for path in _cleanup_paths_for_prepared_step(prepared):
@@ -712,6 +771,21 @@ def _cleanup_executed_step_runtime(prepared: StepPrepared, log_path: Path) -> No
             continue
         seen.add(key)
         _remove_cleanup_path(path, log_path)
+
+
+def _stage_regular_file_mounts(
+    mounts: tuple[DockerMount, ...],
+    staging_root: Path,
+) -> list[tuple[Path, str, bool]]:
+    staged_mounts: list[tuple[Path, str, bool]] = []
+    for index, mount in enumerate(mounts):
+        host_path = mount.host_path
+        if host_path.is_file():
+            staged_host_path = staging_root / f"mount-{index}" / host_path.name
+            stage_readable_file(host_path, staged_host_path)
+            host_path = staged_host_path
+        staged_mounts.append((host_path, mount.container_path, mount.read_only))
+    return staged_mounts
 
 
 def _cleanup_paths_for_prepared_step(prepared: StepPrepared) -> tuple[Path, ...]:

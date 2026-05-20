@@ -13,7 +13,7 @@ from heimdall.adapters import (
 )
 from heimdall.manifests.pipeline import load_pipeline_manifest
 from heimdall.models import ResolvedImages, RuntimeConfig
-from heimdall.simpleyaml import loads
+from heimdall.simpleyaml import dumps, loads
 from tests.helpers import build_pipeline_manifest, write_file
 
 
@@ -97,9 +97,11 @@ class AdapterTest(unittest.TestCase):
 
             eitri = prepare_step("eitri", context)
             original = prepare_step("lidskjalv-original", context)
+            generated = prepare_step("lidskjalv-generated", context)
 
         eitri_manifest = loads(eitri.manifest_text)
         original_manifest = loads(original.manifest_text)
+        generated_manifest = loads(generated.manifest_text)
         self.assertEqual(
             eitri_manifest["source_relpaths"], ["src/main/java", "shared/src/main/java"]
         )
@@ -143,10 +145,109 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(
             original_manifest["project_name"], "example/demo-repo (original)"
         )
+        self.assertEqual(
+            generated_manifest["project_key"], "example_demo-repo__generated_codex"
+        )
+        self.assertEqual(
+            generated_manifest["project_name"], "example/demo-repo (generated) codex"
+        )
         self.assertEqual(original_manifest["repo_subdir"], "app")
         self.assertNotIn("sonar_wait_timeout_sec", original_manifest)
         self.assertNotIn("sonar_wait_poll_sec", original_manifest)
         self.assertTrue(original.report_path.name.endswith("run_report.json"))
+
+    def test_generated_lidskjalv_manifest_names_are_adapter_aware(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "pipeline.yaml"
+            document = loads(build_pipeline_manifest())
+            document["lidskjalv"]["generated"]["project_key"] = "custom_generated"
+            document["lidskjalv"]["generated"]["project_name"] = "Custom Generated"
+            write_file(manifest_path, dumps(document))
+            _raw, config = load_pipeline_manifest(manifest_path)
+            brokk_run = root / "run-root" / "services" / "brokk" / "run"
+            (brokk_run / "artifacts" / "original-repo").mkdir(
+                parents=True, exist_ok=True
+            )
+            (brokk_run / "inputs").mkdir(parents=True, exist_ok=True)
+            write_file(
+                brokk_run / "inputs" / "source-manifest.json",
+                '{"repo_url":"https://github.com/example/demo-repo.git"}\n',
+            )
+
+            provider_bin = root / "provider" / "bin"
+            provider_bin.mkdir(parents=True, exist_ok=True)
+            home_codex = root / "provider" / "home-codex"
+            home_codex.mkdir(parents=True, exist_ok=True)
+            home_claude = root / "provider" / "home-claude"
+            home_claude.mkdir(parents=True, exist_ok=True)
+
+            codex_context = AdapterContext(
+                config=config,
+                runtime=RuntimeConfig(
+                    runs_root=root / "runs-codex",
+                    codex_bin_dir=provider_bin,
+                    codex_host_bin_dir=provider_bin,
+                    codex_home_dir=home_codex,
+                    pull_policy="if-missing",
+                    sonar_host_url=None,
+                    sonar_token_present=False,
+                    sonar_organization=None,
+                    provider="codex",
+                ),
+                run_root=root / "run-root-codex",
+                resolved_images=ResolvedImages(
+                    brokk="sha256:brokk",
+                    eitri="sha256:eitri",
+                    andvari="sha256:andvari",
+                    mimir="sha256:mimir",
+                    kvasir="sha256:kvasir",
+                    lidskjalv="sha256:lidskjalv",
+                ),
+            )
+            claude_context = AdapterContext(
+                config=config,
+                runtime=RuntimeConfig(
+                    runs_root=root / "runs-claude",
+                    codex_bin_dir=provider_bin,
+                    codex_host_bin_dir=provider_bin,
+                    codex_home_dir=home_codex,
+                    pull_policy="if-missing",
+                    sonar_host_url=None,
+                    sonar_token_present=False,
+                    sonar_organization=None,
+                    provider="claude",
+                    claude_home_dir=home_claude,
+                ),
+                run_root=root / "run-root-claude",
+                resolved_images=ResolvedImages(
+                    brokk="sha256:brokk",
+                    eitri="sha256:eitri",
+                    andvari="sha256:andvari",
+                    mimir="sha256:mimir",
+                    kvasir="sha256:kvasir",
+                    lidskjalv="sha256:lidskjalv",
+                ),
+            )
+
+            generated_codex = loads(
+                prepare_step("lidskjalv-generated", codex_context).manifest_text
+            )
+            generated_v2_codex = loads(
+                prepare_step("lidskjalv-generated-v2", codex_context).manifest_text
+            )
+            generated_claude = loads(
+                prepare_step("lidskjalv-generated", claude_context).manifest_text
+            )
+
+        self.assertEqual(generated_codex["project_key"], "custom_generated_codex")
+        self.assertEqual(generated_codex["project_name"], "Custom Generated codex")
+        self.assertEqual(generated_v2_codex["project_key"], "custom_generated_v2_codex")
+        self.assertEqual(
+            generated_v2_codex["project_name"], "Custom Generated v2 codex"
+        )
+        self.assertEqual(generated_claude["project_key"], "custom_generated_claude")
+        self.assertEqual(generated_claude["project_name"], "Custom Generated claude")
 
     def test_prepare_kvasir_stages_optional_build_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

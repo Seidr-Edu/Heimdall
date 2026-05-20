@@ -8,13 +8,16 @@ import sys
 from pathlib import Path
 
 from heimdall.execution import (
+    _check_claude_home_dir as _check_claude_home_dir,
+)
+from heimdall.execution import (
     build_runtime,
     resume_run_root,
     run_pipeline_manifest_path,
     validate_andvari_proxy_runtime,
 )
 from heimdall.execution import (
-    check_codex_login as _check_codex_login,
+    check_provider_login as _check_provider_login,
 )
 from heimdall.images import DockerError, ensure_docker_available
 from heimdall.manifests.pipeline import ManifestValidationError, load_pipeline_manifest
@@ -83,7 +86,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     smoke_parser = subparsers.add_parser(
         "smoke-provider",
-        help="Probe Codex provider compatibility inside Andvari/Kvasir containers",
+        help="Probe provider CLI compatibility inside Andvari/Kvasir containers",
     )
     smoke_parser.add_argument("pipeline_manifest", type=Path)
     smoke_parser.add_argument(
@@ -146,6 +149,12 @@ def _build_parser() -> argparse.ArgumentParser:
     submit_parser.add_argument("--repo-url", required=True)
     submit_parser.add_argument("--commit-sha", required=True)
     submit_parser.add_argument("--overrides", type=Path)
+    submit_parser.add_argument(
+        "--provider",
+        choices=("codex", "claude"),
+        default="codex",
+        help="Provider CLI to use for Andvari steps (default: codex)",
+    )
 
     status_parser = subparsers.add_parser(
         "status", help="Show the queue and pipeline status for one job"
@@ -171,11 +180,39 @@ def _add_runtime_args(parser: argparse.ArgumentParser) -> None:
         "--codex-host-bin-dir",
         type=Path,
         help=(
-            "Host-native Codex bin dir for preflight checks. Defaults to "
+            "Host-native provider bin dir for preflight checks. Defaults to "
             "--codex-bin-dir."
         ),
     )
     parser.add_argument("--codex-home-dir", type=Path, required=True)
+    parser.add_argument(
+        "--claude-home-dir",
+        type=Path,
+        help=(
+            "Claude home dir (credentials.json, settings.json). Required when "
+            "--provider claude and --claude-auth-mode oauth."
+        ),
+    )
+    parser.add_argument(
+        "--claude-auth-mode",
+        choices=("oauth", "api-key-file"),
+        default="oauth",
+        help="Claude auth mode for Andvari when --provider claude (default: oauth)",
+    )
+    parser.add_argument(
+        "--claude-api-key-file",
+        type=Path,
+        help=(
+            "Path to a file containing the Claude API key. Required when "
+            "--provider claude and --claude-auth-mode api-key-file."
+        ),
+    )
+    parser.add_argument(
+        "--provider",
+        choices=("codex", "claude"),
+        default="codex",
+        help="Provider CLI to use for Andvari steps (default: codex)",
+    )
     parser.add_argument(
         "--pull-policy",
         choices=("if-missing", "always", "never"),
@@ -202,6 +239,10 @@ def _run_command(args: argparse.Namespace) -> int:
         args.pull_policy,
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
+        provider=args.provider,
+        claude_auth_mode=args.claude_auth_mode,
+        claude_home_dir=args.claude_home_dir,
+        claude_api_key_file=args.claude_api_key_file,
     )
     run_pipeline_manifest_path(args.pipeline_manifest, runtime)
     return 0
@@ -216,6 +257,10 @@ def _resume_command(args: argparse.Namespace) -> int:
         args.pull_policy,
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
+        provider=args.provider,
+        claude_auth_mode=args.claude_auth_mode,
+        claude_home_dir=args.claude_home_dir,
+        claude_api_key_file=args.claude_api_key_file,
     )
     resume_run_root(args.run_dir, runtime)
     return 0
@@ -236,6 +281,10 @@ def _smoke_provider_command(args: argparse.Namespace) -> int:
         args.pull_policy,
         args.verbose,
         andvari_internal_network_name=args.andvari_internal_network_name,
+        provider=args.provider,
+        claude_auth_mode=args.claude_auth_mode,
+        claude_home_dir=args.claude_home_dir,
+        claude_api_key_file=args.claude_api_key_file,
     )
     _preflight_provider_smoke(runtime, output_dir)
     if runtime.verbose:
@@ -288,6 +337,7 @@ def _submit_command(args: argparse.Namespace) -> int:
         args.repo_url,
         args.commit_sha,
         args.overrides,
+        provider=args.provider,
     )
     completed = submit_remote(
         remote,
@@ -331,20 +381,29 @@ def _preflight_provider_smoke(runtime: RuntimeConfig, output_dir: Path) -> None:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise PreflightError(f"Smoke output dir is not empty: {output_dir}")
     if not runtime.codex_bin_dir.is_dir():
-        raise PreflightError(f"Codex bin dir does not exist: {runtime.codex_bin_dir}")
+        raise PreflightError(
+            f"Provider bin dir does not exist: {runtime.codex_bin_dir}"
+        )
     if not runtime.codex_host_bin_dir.is_dir():
         raise PreflightError(
-            f"Codex host bin dir does not exist: {runtime.codex_host_bin_dir}"
+            f"Provider host bin dir does not exist: {runtime.codex_host_bin_dir}"
         )
     if not runtime.codex_home_dir.is_dir():
-        raise PreflightError(f"Codex home dir does not exist: {runtime.codex_home_dir}")
+        raise PreflightError(
+            f"Provider home dir does not exist: {runtime.codex_home_dir}"
+        )
+    _check_claude_home_dir(runtime)
     validate_andvari_proxy_runtime(runtime)
     ensure_docker_available()
     if runtime.verbose:
         print("[heimdall] docker daemon reachable", file=sys.stderr, flush=True)
-    _check_codex_login(runtime)
+    _check_provider_login(runtime)
     if runtime.verbose:
-        print("[heimdall] codex login status ok", file=sys.stderr, flush=True)
+        print(
+            f"[heimdall] {runtime.provider} provider credentials ok",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _emit_completed_process(completed: subprocess.CompletedProcess[str]) -> None:

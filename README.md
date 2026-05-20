@@ -294,10 +294,10 @@ write a result file into the mounted `/run/workspace`. It writes:
 Those egress slices are also host-generated evidence, so smoke writes them
 under the smoke output root instead of the Andvari service run directory.
 
-The summary includes the host Codex binary format and a classified failure
-reason such as `codex-binary-incompatible-with-container`,
-`codex-auth-unusable-in-container`, or
-`codex-exec-workspace-access-failed`.
+The summary includes the host provider binary format and a classified failure
+reason such as `provider-binary-incompatible-with-container`,
+`codex-auth-unusable-in-container` (Codex only), or
+`provider-exec-workspace-access-failed`.
 
 For `smoke-provider`, Heimdall always applies the Andvari restricted-egress path
 to the Andvari probe container. Heimdall also:

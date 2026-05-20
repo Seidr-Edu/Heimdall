@@ -24,6 +24,7 @@ from tests.helpers import (
     build_worker_config,
     fake_env,
     install_fake_tools,
+    load_fake_state,
     write_file,
 )
 
@@ -35,6 +36,14 @@ class QueueIntegrationTest(unittest.TestCase):
         self.queue_root = self.root / "queue"
         self.runs_root = self.root / "runs"
         self.bin_dir, self.home_dir, self.state_path = install_fake_tools(self.root)
+        write_file(self.home_dir / "auth.json", '{"token":"demo"}\n', mode=0o600)
+        write_file(self.home_dir / "config.toml", 'provider = "chatgpt"\n', mode=0o600)
+        self.claude_api_key_file = self.root / "anthropic-api-key.txt"
+        write_file(
+            self.claude_api_key_file,
+            "sk-ant-test-queue-secret\n",
+            mode=0o600,
+        )
         self.worker_config_path = self.root / "worker.yaml"
         write_file(
             self.worker_config_path,
@@ -86,6 +95,106 @@ class QueueIntegrationTest(unittest.TestCase):
 
         worker_config = load_worker_config(self.worker_config_path)
         self.assertEqual(worker_config.andvari_internal_network_name, "andvari-egress")
+
+    def test_worker_config_accepts_claude_api_key_auth_fields(self) -> None:
+        write_file(
+            self.worker_config_path,
+            build_worker_config(
+                queue_root=self.queue_root,
+                runs_root=self.runs_root,
+                codex_bin_dir=self.bin_dir,
+                codex_home_dir=self.home_dir,
+                claude_auth_mode="api-key-file",
+                claude_api_key_file=self.claude_api_key_file,
+            ),
+        )
+
+        worker_config = load_worker_config(self.worker_config_path)
+        self.assertEqual(worker_config.claude_auth_mode, "api-key-file")
+        self.assertEqual(
+            worker_config.claude_api_key_file, self.claude_api_key_file.resolve()
+        )
+
+    def test_worker_mounts_claude_api_key_for_andvari_only(self) -> None:
+        write_file(
+            self.worker_config_path,
+            build_worker_config(
+                queue_root=self.queue_root,
+                runs_root=self.runs_root,
+                codex_bin_dir=self.bin_dir,
+                codex_home_dir=self.home_dir,
+                claude_auth_mode="api-key-file",
+                claude_api_key_file=self.claude_api_key_file,
+            ),
+        )
+        job_id = self._enqueue_job(request_text=build_queue_request(provider="claude"))
+
+        completed = self._run_cli(
+            [
+                "worker",
+                "--worker-config",
+                str(self.worker_config_path),
+                "--once",
+            ]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        state = load_fake_state(self.state_path)
+        runs = {entry["step"]: entry for entry in state["runs"]}
+        andvari_mounts = runs["andvari"]["mounts"]
+        kvasir_mounts = runs["kvasir"]["mounts"]
+        self.assertEqual(runs["andvari"]["manifest"]["adapter"], "claude")
+        self.assertEqual(runs["kvasir"]["manifest"]["adapter"], "codex")
+        self.assertTrue(
+            any(
+                mount["container"] == "/opt/provider-seed/claude-home"
+                for mount in andvari_mounts
+            )
+        )
+        secret_mount = next(
+            (
+                mount
+                for mount in andvari_mounts
+                if mount["container"] == "/opt/provider-secrets/anthropic_api_key"
+            ),
+            None,
+        )
+        self.assertIsNotNone(secret_mount)
+        assert secret_mount is not None
+        self.assertTrue(secret_mount["read_only"])
+        self.assertEqual(Path(secret_mount["host"]).name, "anthropic-api-key.txt")
+        self.assertNotEqual(
+            Path(secret_mount["host"]).resolve(), self.claude_api_key_file.resolve()
+        )
+        self.assertFalse(
+            any(
+                mount["container"] == "/opt/provider-secrets/anthropic_api_key"
+                for mount in kvasir_mounts
+            )
+        )
+        andvari_settings = json.loads(runs["andvari"]["provider_seed_config"])
+        self.assertEqual(
+            andvari_settings["apiKeyHelper"],
+            "/run/provider-state/claude-home/api-key-helper.sh",
+        )
+        self.assertEqual(andvari_settings["model"], "claude-sonnet-4-6")
+        self.assertEqual(
+            andvari_settings["permissions"]["deny"],
+            ["WebSearch", "WebFetch"],
+        )
+        self.assertIn("settings.json", runs["andvari"]["provider_seed_entries"])
+        self.assertIn("api-key-helper.sh", runs["andvari"]["provider_seed_entries"])
+        self.assertNotIn("credentials.json", runs["andvari"]["provider_seed_entries"])
+        self.assertIn("auth.json", runs["kvasir"]["provider_seed_entries"])
+        self.assertNotIn(
+            "sk-ant-test-queue-secret",
+            self.state_path.read_text(encoding="utf-8"),
+        )
+
+        job_document = self._load_yaml_file(
+            self.queue_root / "jobs" / job_id / "job.yaml"
+        )
+        self.assertEqual(job_document["status"], "passed")
 
     def test_enqueue_rejects_invalid_request(self) -> None:
         completed = self._run_cli(
@@ -184,6 +293,23 @@ class QueueIntegrationTest(unittest.TestCase):
         self.assertTrue(
             (self.runs_root / job_id / "pipeline" / "manifest.yaml").is_file()
         )
+
+    def test_build_pipeline_manifest_for_job_applies_lidskjalv_timeout_override(
+        self,
+    ) -> None:
+        worker_config = load_worker_config(self.worker_config_path)
+        request = load_queue_request_text(
+            build_queue_request(lidskjalv={"execution_timeout_sec": 12})
+        )
+
+        manifest_text = build_pipeline_manifest_for_job(
+            worker_config,
+            request,
+            run_id="20260312T120000Z__override",
+        )
+        manifest = self._load_yaml_text(manifest_text)
+
+        self.assertEqual(manifest["lidskjalv"]["execution_timeout_sec"], 12)
 
     def test_worker_rebuilds_missing_pipeline_manifest_for_running_job(self) -> None:
         job_id = self._enqueue_job()
