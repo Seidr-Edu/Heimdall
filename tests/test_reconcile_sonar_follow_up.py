@@ -8,14 +8,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.helpers import write_file
+
 MODULE_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "reconcile_sonar_follow_up.py"
 )
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
-
-from tests.helpers import write_file
 
 
 SPEC = importlib.util.spec_from_file_location("reconcile_sonar_follow_up", MODULE_PATH)

@@ -8,13 +8,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.helpers import write_file
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
-
-from tests.helpers import write_file
 
 
 def load_script(name: str):
