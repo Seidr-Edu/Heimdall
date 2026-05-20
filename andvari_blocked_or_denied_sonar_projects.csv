@@ -1,0 +1,11 @@
+agent,sonar_project_key,proxy_denied_count,blocked_egress_line_count
+codex,airbnb_native-navigation__generated_v2_codex,1,0
+codex,stealthcopter_AndroidNetworkTools__generated_v2_codex,1,0
+codex,stealthcopter_AndroidNetworkTools__generated_v3_codex,0,7
+claude,DantSu_ESCPOS-ThermalPrinter-Android__generated_v3_claude,1,0
+claude,esoxjem_MovieGuide__generated_v2_claude,1,0
+claude,evant_binding-collection-adapter__generated_claude,1,0
+claude,JakeWharton_RxRelay__generated_claude,4,0
+claude,JakeWharton_RxRelay__generated_v3_claude,1,0
+claude,macrozheng_mall-tiny__generated_claude,1,0
+claude,eugene-khyst_postgresql-event-sourcing__generated_v2_claude,1,0

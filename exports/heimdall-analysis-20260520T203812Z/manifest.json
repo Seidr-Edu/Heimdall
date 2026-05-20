@@ -1,10 +1,12 @@
 {
   "schema_version": "heimdall_analysis_bundle.v1",
-  "generated_at": "2026-05-20T07:02:13Z",
+  "generated_at": "2026-05-20T20:38:14Z",
   "run_count": 80,
   "variant_count": 320,
   "sonar_project_count": 277,
+  "andvari_invocation_count": 240,
   "tables": [
+    "andvari_invocations",
     "kvasir",
     "mimir",
     "runs",
@@ -19,6 +21,8 @@
     "Use non-empty variants.project_key to join valid Sonar metrics from sonar_projects.",
     "sonar_projects excludes blocked variants that were accidentally scanned later.",
     "mimir and kvasir contain only real tool report rows.",
-    "raw/ is included only when export runs with --include-raw."
+    "andvari_invocations is a compact Andvari enforcement summary; raw evidence stays under raw/andvari.",
+    "raw/andvari is always included for reviewer-facing Andvari evidence analysis.",
+    "--include-raw additionally copies broader raw provenance under raw/runs and raw/sidecar."
   ]
 }

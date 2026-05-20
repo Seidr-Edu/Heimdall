@@ -16,3 +16,4 @@ proxy/
 .codex-staging
 .mypy_cache/
 .ruff_cache/
+exports/*/raw/
