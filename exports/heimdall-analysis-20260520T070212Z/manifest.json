@@ -1,0 +1,24 @@
+{
+  "schema_version": "heimdall_analysis_bundle.v1",
+  "generated_at": "2026-05-20T07:02:13Z",
+  "run_count": 80,
+  "variant_count": 320,
+  "sonar_project_count": 277,
+  "tables": [
+    "kvasir",
+    "mimir",
+    "runs",
+    "sonar_projects",
+    "variants"
+  ],
+  "notes": [
+    "variants is the primary denormalized analysis table.",
+    "sonar_projects is deduplicated by project_key.",
+    "Original Sonar project keys are shared across Codex and Claude runs.",
+    "variants is the 320-row experiment matrix and carries tool status/reason columns.",
+    "Use non-empty variants.project_key to join valid Sonar metrics from sonar_projects.",
+    "sonar_projects excludes blocked variants that were accidentally scanned later.",
+    "mimir and kvasir contain only real tool report rows.",
+    "raw/ is included only when export runs with --include-raw."
+  ]
+}
