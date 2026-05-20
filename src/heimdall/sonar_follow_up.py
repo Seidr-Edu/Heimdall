@@ -25,8 +25,12 @@ from heimdall.utils import timestamp_utc, write_text
 SONAR_FOLLOW_UP_SCHEMA_VERSION = "heimdall_sonar_follow_up.v1"
 SONAR_FOLLOW_UP_POLL_INTERVAL_SEC = 30
 SONAR_MEASURE_KEYS = (
-    "bugs,vulnerabilities,code_smells,coverage,duplicated_lines_density,"
-    "reliability_rating,security_rating,sqale_rating,ncloc,sqale_index"
+    "bugs,vulnerabilities,code_smells,security_hotspots,files,classes,functions,"
+    "statements,ncloc,sqale_index,duplicated_files,duplicated_lines,"
+    "duplicated_blocks,blocker_violations,critical_violations,major_violations,"
+    "minor_violations,info_violations,coverage,duplicated_lines_density,"
+    "reliability_rating,security_rating,sqale_rating,complexity,"
+    "cognitive_complexity,comment_lines,comment_lines_density"
 )
 _FOLLOW_UP_TERMINAL_STATUSES = {"complete", "failed", "skipped"}
 _FOLLOW_UP_STEPS = (
